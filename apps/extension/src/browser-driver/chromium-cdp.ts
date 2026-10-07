@@ -7,7 +7,8 @@
 //   already attached" if invoked twice for the same tab — we track
 //   attachments in `attachedTabs` to coalesce. The CDP protocol
 //   version pinned here ("1.3") matches what intern uses and what
-//   Playwright targets for stable Chrome / Edge / Brave.
+//   mainstream automation clients target for stable Chrome / Edge /
+//   Brave.
 // * Closing a tab implicitly detaches; we do not race-clean here.
 //   Higher-level code calls `detach()` explicitly when a session
 //   stops to keep the "Agent controlling — DevTools" infobar visible
