@@ -100,7 +100,7 @@ pub struct ClickResult {
 pub struct HoverParams {
     pub session_id: String,
     /// Optional `@e<N>` ref allocated by the last observation.
-    /// Mutually exclusive with `selector`.
+    /// Mutually exclusive with `selector` and with `x`/`y`.
     #[serde(
         rename = "ref",
         alias = "ref_",
@@ -108,8 +108,18 @@ pub struct HoverParams {
         skip_serializing_if = "Option::is_none"
     )]
     pub ref_: Option<String>,
+    /// Mutually exclusive with `ref` and with `x`/`y`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub selector: Option<String>,
+    /// Viewport-relative X coordinate (CSS pixels). When both `x` and
+    /// `y` are supplied the mouse moves straight to this point without
+    /// resolving an element; both must be given together and neither
+    /// may be combined with `ref`/`selector`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub x: Option<f64>,
+    /// Viewport-relative Y coordinate (CSS pixels). See `x`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub y: Option<f64>,
     /// Target tab. Defaults to the Agent Window's active tab.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tab_id: Option<i64>,
@@ -399,6 +409,8 @@ mod tests {
             session_id: "abcd".into(),
             ref_: Some("@e3".into()),
             selector: None,
+            x: None,
+            y: None,
             tab_id: Some(42),
             modifiers: Some(vec![KeyModifier::Shift]),
             settle_ms: Some(200),
@@ -407,6 +419,46 @@ mod tests {
         let v = serde_json::to_value(&p).unwrap();
         assert_eq!(v.get("ref").and_then(|v| v.as_str()), Some("@e3"));
         assert!(v.get("ref_").is_none());
+        let round: HoverParams = serde_json::from_value(v).unwrap();
+        assert_eq!(round, p);
+    }
+
+    #[test]
+    fn hover_params_omit_coordinates_when_absent() {
+        let p = HoverParams {
+            session_id: "abcd".into(),
+            ref_: None,
+            selector: None,
+            x: None,
+            y: None,
+            tab_id: None,
+            modifiers: None,
+            settle_ms: None,
+            timeout_ms: None,
+        };
+        let v = serde_json::to_value(&p).unwrap();
+        assert!(v.get("x").is_none());
+        assert!(v.get("y").is_none());
+        let round: HoverParams = serde_json::from_value(v).unwrap();
+        assert_eq!(round, p);
+    }
+
+    #[test]
+    fn hover_params_round_trip_coordinates() {
+        let p = HoverParams {
+            session_id: "abcd".into(),
+            ref_: None,
+            selector: None,
+            x: Some(512.5),
+            y: Some(384.0),
+            tab_id: None,
+            modifiers: None,
+            settle_ms: Some(200),
+            timeout_ms: None,
+        };
+        let v = serde_json::to_value(&p).unwrap();
+        assert_eq!(v.get("x"), Some(&serde_json::json!(512.5)));
+        assert_eq!(v.get("y"), Some(&serde_json::json!(384.0)));
         let round: HoverParams = serde_json::from_value(v).unwrap();
         assert_eq!(round, p);
     }
