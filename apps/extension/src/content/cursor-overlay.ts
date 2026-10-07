@@ -151,8 +151,17 @@ function transitionDurationMs(tweenMs: number | undefined): number {
 }
 
 export interface CursorOverlayController {
-  /** Authoritative agent-state push: mounts, shows, or tears the node down. */
+  /**
+   * Authoritative agent-state push: records the tab's control mode and
+   * re-evaluates the mount decision.
+   */
   applyAgentState(state: OverlayAgentStateMessage): void;
+  /**
+   * Daemon verdict (persisted in `chrome.storage.session`, read by the
+   * entrypoint). Re-evaluates the mount decision — the mode and the verdict
+   * arrive through independent channels and may land in either order.
+   */
+  setVerdict(enabled: boolean): void;
   /** Per-tab reset (tab returned to its owner): remove everything. */
   reset(): void;
   /**
@@ -186,7 +195,10 @@ export function createCursorOverlayController(
   let shadow: ShadowRoot | null = null;
   let pointer: HTMLDivElement | null = null;
   let mounted = false;
-  let lastStateActive = false;
+  // Two independent halves of the mount decision; whichever arrives last
+  // triggers the (re)evaluation.
+  let lastMode: OverlayAgentStateMessage["mode"] | null = null;
+  let verdict = false;
   let keyFlashTimer: ReturnType<typeof setTimeout> | undefined;
   let captureCount = 0;
   const rings = new Set<HTMLElement>();
@@ -313,6 +325,15 @@ export function createCursorOverlayController(
     }, KEY_FLASH_MS);
   }
 
+  function evaluate(): void {
+    const active = lastMode !== null && lastMode !== "hidden" && verdict;
+    if (active) {
+      ensureMounted();
+    } else {
+      teardown();
+    }
+  }
+
   return {
     get isMounted() {
       return mounted;
@@ -320,16 +341,18 @@ export function createCursorOverlayController(
 
     applyAgentState(state: OverlayAgentStateMessage): void {
       if (!versions.admit(state)) return;
-      lastStateActive = state.mode !== "hidden" && state.cursor_overlay === true;
-      if (lastStateActive) {
-        ensureMounted();
-      } else {
-        teardown();
-      }
+      lastMode = state.mode;
+      evaluate();
+    },
+
+    setVerdict(enabled: boolean): void {
+      if (verdict === enabled) return;
+      verdict = enabled;
+      evaluate();
     },
 
     reset(): void {
-      lastStateActive = false;
+      lastMode = null;
       teardown();
     },
 

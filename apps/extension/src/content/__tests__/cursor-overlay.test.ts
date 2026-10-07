@@ -4,15 +4,11 @@ import { CAPTURE_SUPPRESS } from "@/lib/capture-suppress-bridge";
 import { CURSOR_OVERLAY_MSG } from "@/lib/cursor-bridge";
 import { OVERLAY_AGENT_STATE, type OverlayAgentStateMessage } from "@/lib/overlay-bridge";
 
-function agentState(
-  mode: OverlayAgentStateMessage["mode"],
-  cursor: boolean,
-): OverlayAgentStateMessage {
+function agentState(mode: OverlayAgentStateMessage["mode"]): OverlayAgentStateMessage {
   return {
     type: OVERLAY_AGENT_STATE,
     sessionId: mode === "hidden" ? null : "sess-1",
     mode,
-    ...(cursor ? { cursor_overlay: true as const } : {}),
     epoch: "e1",
     generation: 1,
   };
@@ -31,9 +27,10 @@ describe("cursor overlay controller", () => {
     return document.documentElement.querySelector<HTMLElement>('[class^="pvx-"]');
   }
 
-  it("mounts one inert host on an active state that carries the cursor flag", () => {
+  it("mounts one inert host once mode and verdict are both active", () => {
     const controller = createCursorOverlayController({ shadowMode: "open" });
-    controller.applyAgentState(agentState("control", true));
+    controller.setVerdict(true);
+    controller.applyAgentState(agentState("control"));
 
     const host = mountedHost();
     expect(controller.isMounted).toBe(true);
@@ -49,51 +46,71 @@ describe("cursor overlay controller", () => {
     expect(pointer!.querySelectorAll("svg").length).toBe(2);
   });
 
-  it("never mounts when the daemon flag is absent", () => {
+  it("mount decision re-evaluates whichever half lands last", () => {
     const controller = createCursorOverlayController({ shadowMode: "open" });
-    controller.applyAgentState(agentState("control", false));
+    // Mode first, verdict missing: nothing mounts yet (SW restart window).
+    controller.applyAgentState(agentState("control"));
+    expect(controller.isMounted).toBe(false);
+    // Verdict lands (storage read/onChanged): mount without a new message.
+    controller.setVerdict(true);
+    expect(controller.isMounted).toBe(true);
+    expect(mountedHost()).not.toBeNull();
+    // Verdict flips off (operator disabled + daemon restarted): teardown.
+    controller.setVerdict(false);
     expect(controller.isMounted).toBe(false);
     expect(mountedHost()).toBeNull();
   });
 
-  it("pauses and hidden modes keep the indicator mounted", () => {
+  it("never mounts on a control mode while the verdict is off", () => {
     const controller = createCursorOverlayController({ shadowMode: "open" });
-    controller.applyAgentState(agentState("paused", true));
+    controller.setVerdict(false);
+    controller.applyAgentState(agentState("control"));
+    expect(controller.isMounted).toBe(false);
+    expect(mountedHost()).toBeNull();
+  });
+
+  it("pauses and interrupting modes keep the indicator mounted", () => {
+    const controller = createCursorOverlayController({ shadowMode: "open" });
+    controller.setVerdict(true);
+    controller.applyAgentState(agentState("paused"));
     expect(controller.isMounted).toBe(true);
-    controller.applyAgentState(agentState("hidden", true));
+    controller.applyAgentState(agentState("hidden"));
     expect(controller.isMounted).toBe(false);
     expect(mountedHost()).toBeNull();
   });
 
   it("teardown removes every node; a later active state remounts", () => {
     const controller = createCursorOverlayController({ shadowMode: "open" });
-    controller.applyAgentState(agentState("control", true));
+    controller.setVerdict(true);
+    controller.applyAgentState(agentState("control"));
     controller.reset();
     expect(controller.isMounted).toBe(false);
     expect(mountedHost()).toBeNull();
 
-    controller.applyAgentState(agentState("interrupting", true));
+    controller.applyAgentState(agentState("interrupting"));
     expect(controller.isMounted).toBe(true);
     expect(mountedHost()).not.toBeNull();
   });
 
   it("orders state messages by epoch and generation", () => {
     const controller = createCursorOverlayController({ shadowMode: "open" });
-    controller.applyAgentState({ ...agentState("control", true), epoch: "e1", generation: 1 });
+    controller.setVerdict(true);
+    controller.applyAgentState({ ...agentState("control"), epoch: "e1", generation: 1 });
     expect(controller.isMounted).toBe(true);
     // An older message from the same worker epoch must not win.
-    controller.applyAgentState({ ...agentState("hidden", true), epoch: "e1", generation: 2 });
+    controller.applyAgentState({ ...agentState("hidden"), epoch: "e1", generation: 2 });
     expect(controller.isMounted).toBe(false);
-    controller.applyAgentState({ ...agentState("control", true), epoch: "e1", generation: 1 });
+    controller.applyAgentState({ ...agentState("control"), epoch: "e1", generation: 1 });
     expect(controller.isMounted).toBe(false);
     // A newer worker epoch (background restart) is authoritative again.
-    controller.applyAgentState({ ...agentState("control", true), epoch: "e2", generation: 1 });
+    controller.applyAgentState({ ...agentState("control"), epoch: "e2", generation: 1 });
     expect(controller.isMounted).toBe(true);
   });
 
   it("move updates the pointer transform; tween controls the glide duration", () => {
     const controller = createCursorOverlayController({ shadowMode: "open" });
-    controller.applyAgentState(agentState("control", true));
+    controller.setVerdict(true);
+    controller.applyAgentState(agentState("control"));
     const pointer = mountedHost()!.shadowRoot!.querySelector<HTMLElement>(".pv-pointer")!;
 
     controller.handleMessage({ type: CURSOR_OVERLAY_MSG, kind: "move", x: 120, y: 80 }, vi.fn());
@@ -111,7 +128,8 @@ describe("cursor overlay controller", () => {
   it("press shows the ring and accent cursor; release fades the ring away", () => {
     vi.useFakeTimers();
     const controller = createCursorOverlayController({ shadowMode: "open" });
-    controller.applyAgentState(agentState("control", true));
+    controller.setVerdict(true);
+    controller.applyAgentState(agentState("control"));
     const shadow = mountedHost()!.shadowRoot!;
     const pointer = shadow.querySelector<HTMLElement>(".pv-pointer")!;
     const sendResponse = vi.fn();
@@ -138,7 +156,8 @@ describe("cursor overlay controller", () => {
   it("settle acks after the transition fallback and targets the exact point", () => {
     vi.useFakeTimers();
     const controller = createCursorOverlayController({ shadowMode: "open" });
-    controller.applyAgentState(agentState("control", true));
+    controller.setVerdict(true);
+    controller.applyAgentState(agentState("control"));
     const pointer = mountedHost()!.shadowRoot!.querySelector<HTMLElement>(".pv-pointer")!;
     const sendResponse = vi.fn();
 
@@ -174,7 +193,8 @@ describe("cursor overlay controller", () => {
 
   it("wheel and key messages are accepted without async work", () => {
     const controller = createCursorOverlayController({ shadowMode: "open" });
-    controller.applyAgentState(agentState("control", true));
+    controller.setVerdict(true);
+    controller.applyAgentState(agentState("control"));
     expect(
       controller.handleMessage(
         { type: CURSOR_OVERLAY_MSG, kind: "wheel", x: 5, y: 5, deltaX: 0, deltaY: 100 },
@@ -192,7 +212,8 @@ describe("cursor overlay controller", () => {
     // must render rings/hints via its retained root reference, not
     // `host.shadowRoot` (which reads back null for closed roots).
     const controller = createCursorOverlayController();
-    controller.applyAgentState(agentState("control", true));
+    controller.setVerdict(true);
+    controller.applyAgentState(agentState("control"));
     expect(controller.isMounted).toBe(true);
     const host = mountedHost()!;
     expect(host.className).toMatch(/^pvx-[a-z0-9]{6}$/);
@@ -224,7 +245,8 @@ describe("cursor overlay controller", () => {
 
   it("capture suppress hides the host for the whole capture window", () => {
     const controller = createCursorOverlayController({ shadowMode: "open" });
-    controller.applyAgentState(agentState("control", true));
+    controller.setVerdict(true);
+    controller.applyAgentState(agentState("control"));
     const host = mountedHost()!;
 
     controller.applyCaptureSuppress("begin");

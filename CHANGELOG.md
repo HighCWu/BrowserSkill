@@ -25,6 +25,11 @@ Starting from 0.2.0, CLI / Extension / DSH Plugin share the same version number.
   and page unload. The daemon ships it enabled by default and advertises the
   verdict in its handshake response (`cursor_overlay`); setting
   `BSK_CURSOR_OVERLAY=off` keeps pages free of the indicator nodes entirely.
+  Mounting is race-free by design: the handshake verdict is mirrored into
+  `chrome.storage.session` (surviving service-worker restarts), the
+  `overlay.ready` request answers synchronously with the caller's control
+  state, and any input received on an unmounted tab triggers a throttled
+  state re-sync.
 - `mouse-move` (and `hover`/`click --glide`) now plan pointer motion with a
   v2 behaviour state machine by default: a Fitts-timed main pulse covering
   85–95% of the distance with a curvature-weighted minimum-jerk profile and
