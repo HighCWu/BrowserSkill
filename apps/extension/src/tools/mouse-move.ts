@@ -1,10 +1,19 @@
 // tool.mouse_move — move the pointer along a humanised trajectory.
 //
-// Unlike `hover` (which snaps the pointer in a single event), this tool
-// dispatches a planned sequence of real `mouseMoved` inputs with genuine
-// sleeps in between: a Bézier path with an ease-in-out velocity
-// envelope, per-point noise, and an occasional overshoot-and-correct
-// tail. The planned timings are part of the observable behaviour.
+// Two planning regimes share this handler. With every knob at its
+// default the pointer follows the v2 behaviour state machine
+// (trajectory-behavior.ts): a main pulse, hesitation, en-route
+// inspection of interactive elements, corrective pulses, the occasional
+// rethink. Passing any explicit knob (`steps`, `duration_ms`,
+// `curve: "linear"`) selects the deterministic single-segment v1 plan
+// (trajectory.ts) so scripted callers get exactly what they asked for.
+// Both dispatch real `Input.dispatchMouseEvent` `mouseMoved` events with
+// genuine sleeps in between — the timing is part of the output, never
+// zero-delay bursts.
+//
+// The v1 path shapes (perpendicular Bézier anchor offsets, overshoot
+// radius) follow ideas popularised by the MIT-licensed ghost-cursor
+// project; the implementation here is original.
 
 import { ChromiumCdp } from "@/browser-driver/chromium-cdp";
 import type { SessionContext, SessionManager } from "@/session-manager/manager";
@@ -12,6 +21,7 @@ import type { MouseCurve, MouseMoveParams, MouseMoveResult, RpcError } from "@/t
 import { attachDialogs, markDialogCursor } from "./dialogs";
 import { cdpError } from "./errors";
 import { checkOverlayAtPoint, hoverPointInViewport } from "./interaction";
+import { probeInteractiveAt } from "./page-probe";
 import {
   type CdpRunner,
   type ChromeTabsApi,
@@ -31,6 +41,7 @@ import {
   randomOvershoot,
   type Vec2,
 } from "./trajectory";
+import { planBehaviorTrajectory } from "./trajectory-behavior";
 
 export interface MouseMoveDeps {
   cdp: CdpRunner;
@@ -38,6 +49,8 @@ export interface MouseMoveDeps {
   signal?: AbortSignal;
   /** Temporarily disable the Agent Window overlay's input blocker. */
   bypassOverlay?: (tabId: number, enabled: boolean) => Promise<void>;
+  /** Injected random source for reproducible plans (tests). */
+  rng?: () => number;
 }
 
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -143,23 +156,45 @@ export async function handleMouseMove(
     }
     checkActive();
 
-    const curve: MouseCurve = params.curve ?? "bezier";
-    const dist = distance(start, destination);
-    const durationMs = params.duration_ms ?? adaptiveDurationMs(dist);
-    const steps = params.steps ?? defaultSteps(durationMs);
-    const overshoot = params.overshoot ?? randomOvershoot();
-    const jitter = params.jitter ?? true;
+    checkActive();
 
-    const points = planTrajectory({
-      from: start,
-      to: destination,
-      durationMs,
-      steps,
-      curve,
-      overshoot,
-      jitter,
-      rng: Math.random,
-    });
+    // v1 deterministic single-segment mode: any explicit knob opts out
+    // of the behaviour state machine.
+    const legacyMode =
+      params.steps !== undefined || params.duration_ms !== undefined || params.curve === "linear";
+
+    const curve: MouseCurve = params.curve ?? "bezier";
+    const jitter = params.jitter ?? true;
+    let points: Awaited<ReturnType<typeof planTrajectory>>;
+    let overshootHappened: boolean;
+    if (legacyMode) {
+      const dist = distance(start, destination);
+      const durationMs = params.duration_ms ?? adaptiveDurationMs(dist);
+      const steps = params.steps ?? defaultSteps(durationMs);
+      const overshoot = params.overshoot ?? randomOvershoot();
+      points = planTrajectory({
+        from: start,
+        to: destination,
+        durationMs,
+        steps,
+        curve,
+        overshoot,
+        jitter,
+        rng: deps.rng ?? Math.random,
+      });
+      overshootHappened = points.length > steps;
+    } else {
+      const plan = await planBehaviorTrajectory({
+        from: start,
+        to: destination,
+        probe: (x, y) => probeInteractiveAt(deps.cdp, tabId, x, y),
+        overshoot: params.overshoot,
+        jitter,
+        rng: deps.rng ?? Math.random,
+      });
+      points = plan.points;
+      overshootHappened = plan.overshoot;
+    }
 
     // The overlay input blocker would swallow the trajectory's hover
     // events the same way it does for hover, so bypass it when present.
@@ -204,7 +239,7 @@ export async function handleMouseMove(
       y: destination.y,
       steps: points.length,
       duration_ms: plannedDurationMs,
-      overshoot: points.length > steps,
+      overshoot: overshootHappened,
       curve,
     });
   } catch (error) {

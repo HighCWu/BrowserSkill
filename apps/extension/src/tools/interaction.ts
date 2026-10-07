@@ -40,6 +40,7 @@ import { attachDialogs, markDialogCursor } from "./dialogs";
 import { backendNodeToObject } from "./element-geometry";
 import { cdpError, rpcError } from "./errors";
 import { resolveNodeGeometry, scrollElementAndFramesIntoView } from "./frame-geometry";
+import { probeInteractiveAt } from "./page-probe";
 import {
   type CdpRunner,
   type ChromeTabsApi,
@@ -52,15 +53,8 @@ import {
   resolveTargetTab,
 } from "./shared";
 import { resolveSnapshotRef } from "./snapshot-ref";
-import {
-  adaptiveDurationMs,
-  defaultSteps,
-  dispatchTrajectory,
-  distance,
-  glideStart,
-  planTrajectory,
-  randomOvershoot,
-} from "./trajectory";
+import { dispatchTrajectory, glideStart } from "./trajectory";
+import { planBehaviorTrajectory } from "./trajectory-behavior";
 
 export interface InteractionDeps extends ClickOverlayDeps {
   /** Arm short popup observation immediately before native input dispatch. */
@@ -127,36 +121,46 @@ function throwIfAborted(signal: AbortSignal | undefined): RpcError | null {
 }
 
 /**
- * Glide the pointer to `point` along a humanised trajectory instead of
- * snapping there in one event. Starts from the tab's last dispatched
- * pointer position (or the viewport centre) and records every
- * dispatched position so consecutive moves read as one continuous hand.
+ * Glide the pointer to `point` along the v2 behaviour trajectory
+ * instead of snapping there in one event: a main pulse with hesitation,
+ * en-route inspection of interactive elements the path crosses, and —
+ * for clicks — a brake into the landing with a settle pause. Starts
+ * from the tab's last dispatched pointer position (or the viewport
+ * centre) and records every dispatched position so consecutive moves
+ * read as one continuous hand. Returns the landing the plan chose
+ * (pre-click landing scatter can stop a few pixels off the box centre).
  */
+interface GlideOptions {
+  /** Click approach: brake into the landing and settle before the press. */
+  dwell?: boolean;
+  /** Destination element box; enables inspection stops and landing scatter. */
+  box?: { x: number; y: number; width: number; height: number } | null;
+}
+
 async function glideToPoint(
   cdp: CdpRunner,
   tabId: number,
   point: { x: number; y: number },
   signal: AbortSignal | undefined,
   modifiers: number,
-): Promise<void> {
+  options: GlideOptions = {},
+): Promise<{ x: number; y: number }> {
   const start = await glideStart(cdp, tabId);
   if (!start) throw new Error("Page.getLayoutMetrics returned no viewport size");
-  const durationMs = adaptiveDurationMs(distance(start, point));
-  const points = planTrajectory({
+  const plan = await planBehaviorTrajectory({
     from: start,
     to: point,
-    durationMs,
-    steps: defaultSteps(durationMs),
-    curve: "bezier",
-    overshoot: randomOvershoot(),
-    jitter: true,
+    targetBox: options.box ?? null,
+    probe: (x, y) => probeInteractiveAt(cdp, tabId, x, y),
+    dwell: options.dwell ?? false,
     rng: Math.random,
   });
-  await dispatchTrajectory(cdp, tabId, points, {
+  await dispatchTrajectory(cdp, tabId, plan.points, {
     signal,
     modifiers,
     remember: (p) => cdp.rememberMousePos?.(tabId, p.x, p.y),
   });
+  return plan.landed;
 }
 
 function isAbortLikeError(err: unknown): boolean {
@@ -561,17 +565,31 @@ export async function clickResolvedTarget(
   if (!Number.isSafeInteger(clickCount) || clickCount < 1) {
     return { code: "invalid_params", message: "click_count must be a positive integer" };
   }
+  // A glided click may re-land a few pixels off the resolved centre
+  // (landing scatter); report where the press actually happened.
+  const landedOut: { value?: { x: number; y: number } } = {};
   const error = await withClickOverlay(target.tabId, centre, deps, (verifyOverlay) =>
-    dispatchClickAtPoint(target.tabId, centre, params, deps, verifyOverlay, undefined, markSent),
+    dispatchClickAtPoint(
+      target.tabId,
+      centre,
+      params,
+      deps,
+      verifyOverlay,
+      undefined,
+      markSent,
+      geometry.topBounds,
+      landedOut,
+    ),
   );
   if (error) return error;
+  const reported = landedOut.value ?? centre;
 
   return attachDialogs(deps.cdp, target.tabId, dialogCursor, {
     tab_id: target.tabId,
     used_ref: resolved.usedRef,
     used_selector: resolved.usedSelector,
-    x: centre.x,
-    y: centre.y,
+    x: reported.x,
+    y: reported.y,
   });
 }
 
@@ -584,6 +602,10 @@ async function dispatchClickAtPoint(
   verifyOverlay: () => Promise<RpcError | null>,
   beforePress?: () => Promise<RpcError | null>,
   markSent?: () => void,
+  /** Element box for the glided approach (inspection + landing scatter). */
+  targetBox?: { x: number; y: number; width: number; height: number } | null,
+  /** Receives the point actually pressed when a glide re-landed it. */
+  landedOut?: { value?: { x: number; y: number } },
 ): Promise<RpcError | null> {
   const button = params.button ?? "left",
     modifiers = modifiersBitfield(params.modifiers);
@@ -613,10 +635,20 @@ async function dispatchClickAtPoint(
   try {
     if (deps.signal?.aborted) return failure({ code: "cancelled", message: "click aborted" });
     moved = true;
-    // Optional humanised approach: glide from the last pointer position
-    // to the click point, then confirm the destination in one final move.
+    // Humanised approach: the v2 state machine glides from the last
+    // pointer position to the click point with a pre-click brake. The
+    // plan may scatter the landing a few pixels off the element centre
+    // (only when the box is comfortably larger than the scatter), so
+    // the press follows the actual landing.
     if (params.glide) {
-      await glideToPoint(deps.cdp, tabId, point, deps.signal, modifiers);
+      const landed = await glideToPoint(deps.cdp, tabId, point, deps.signal, modifiers, {
+        dwell: true,
+        box: targetBox ?? null,
+      });
+      if (landed.x !== point.x || landed.y !== point.y) {
+        point = { x: landed.x, y: landed.y };
+        if (landedOut) landedOut.value = { x: landed.x, y: landed.y };
+      }
     }
     await deps.cdp.send(tabId, "Input.dispatchMouseEvent", {
       type: "mouseMoved",
@@ -774,6 +806,7 @@ export async function handleHover(
   const pointX = params.x;
   const pointY = params.y;
   let centre: { x: number; y: number };
+  let elementBox: { x: number; y: number; width: number; height: number } | null = null;
   let usedRef: string | undefined;
   let usedSelector: string | undefined;
   if (pointX !== undefined && pointY !== undefined) {
@@ -802,6 +835,7 @@ export async function handleHover(
     );
     if (isRpcError(geometry)) return geometry;
     centre = geometry.actionPoint;
+    elementBox = geometry.topBounds;
     usedRef = node.usedRef;
     usedSelector = node.usedSelector;
   }
@@ -825,7 +859,9 @@ export async function handleHover(
 
   try {
     if (params.glide) {
-      await glideToPoint(deps.cdp, target.tabId, centre, deps.signal, modifiers);
+      await glideToPoint(deps.cdp, target.tabId, centre, deps.signal, modifiers, {
+        box: elementBox,
+      });
     } else {
       await deps.cdp.send(target.tabId, "Input.dispatchMouseEvent", {
         type: "mouseMoved",

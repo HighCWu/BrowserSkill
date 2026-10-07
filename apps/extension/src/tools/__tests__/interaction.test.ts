@@ -1398,7 +1398,7 @@ describe("interaction glide", () => {
     expect(remembered).toEqual([{ tabId: 4, x: 500, y: 300 }]);
   });
 
-  it("click with glide glides before pressing at the destination", async () => {
+  it("click with glide glides before pressing at a scattered landing", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
     const ctx = await sm.start("aa11");
     ctx.refStore.set("e3", 1234, { tabId: 4 });
@@ -1411,21 +1411,35 @@ describe("interaction glide", () => {
     const res = await handleClick(
       sm,
       { session_id: "aa11", ref: "@e3", glide: true },
-      { cdp: fake.cdp, tabsApi: fake.tabsApi },
+      {
+        cdp: fake.cdp,
+        tabsApi: fake.tabsApi,
+      },
     );
 
     if ("code" in res) throw new Error(`unexpected error: ${JSON.stringify(res)}`);
-    expect(res).toMatchObject({ tab_id: 4, used_ref: "e3", x: 60, y: 40 });
+    expect(res).toMatchObject({ tab_id: 4, used_ref: "e3" });
+    // The press point is the plan's landing: inside the element, kept
+    // away from the geometric centre (landing scatter), and reported.
+    const centre = { x: 60, y: 40 };
+    const offset = Math.hypot(res.x - centre.x, res.y - centre.y);
+    expect(offset).toBeGreaterThanOrEqual(5.5);
+    expect(offset).toBeLessThanOrEqual(12.5);
+    expect(res.x).toBeGreaterThan(15);
+    expect(res.x).toBeLessThan(105);
+    expect(res.y).toBeGreaterThan(25);
+    expect(res.y).toBeLessThan(55);
     const events = fake.sent
       .filter((c) => c.method === "Input.dispatchMouseEvent")
       .map((c) => c.params as { type: string; x: number; y: number });
     const presses = events.filter((e) => e.type === "mousePressed");
     expect(presses).toHaveLength(1);
+    expect(presses[0]).toMatchObject({ x: res.x, y: res.y });
     const path = events.filter((e) => e.type === "mouseMoved");
     // Glided approach plus the final confirming move before the press.
     expect(path.length).toBeGreaterThan(2);
     for (const point of path.slice(-2)) {
-      expect(point).toMatchObject({ x: 60, y: 40 });
+      expect(point).toMatchObject({ x: res.x, y: res.y });
     }
   });
 

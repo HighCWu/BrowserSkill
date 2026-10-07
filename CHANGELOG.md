@@ -9,6 +9,28 @@ Starting from 0.2.0, CLI / Extension / DSH Plugin share the same version number.
 
 ### Added
 
+- `mouse-move` (and `hover`/`click --glide`) now plan pointer motion with a
+  v2 behaviour state machine by default: a Fitts-timed main pulse covering
+  85–95% of the distance with a curvature-weighted minimum-jerk profile and
+  a mid-reach micro-correction, plus probabilistic hesitation pauses,
+  en-route inspection stops over interactive elements discovered through
+  the existing page-world evaluate channel (up to three probes per move),
+  0–3 corrective arrival pulses, an occasional rethink (u-turn), and — for
+  glided clicks only — a pre-click brake scaled to cover the final-window
+  deceleration channel with a centre-avoiding landing scatter (the press
+  follows the scattered landing and is what the result reports; small
+  controls keep their exact action point). Mid-flight insertions cap at
+  three per move. Inter-point delays cluster around the pointer sampling
+  interval with jitter, coordinates stay sub-pixel, and vertical moves run
+  slightly asymmetrically. Passing explicit `--steps`, `--duration-ms` or
+  `--curve linear` keeps the previous deterministic single-segment planner;
+  `--overshoot off` also disables the v2 overshoot branch. A built-in exam
+  (`trajectory-metrics`) holds the generated traces inside the published
+  human envelopes: power-law speed/curvature exponent, pause ratio,
+  submovement count, pre-click deceleration ratio, non-constant
+  acceleration and tremor-free locked windows.
+
+
 - CDP console capture is now opt-in via the daemon environment variable
   `BSK_CONSOLE_CAPTURE`. Unset (the default) keeps it off: attaching to a tab
   never sends `Runtime.enable` / `Log.enable`, which anti-bot stacks treat as a

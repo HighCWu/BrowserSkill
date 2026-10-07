@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { SessionManager } from "@/session-manager/manager";
 import type { CdpRunner } from "@/tools/shared";
 import { handleMouseMove } from "../mouse-move";
-import { distance, type Vec2 } from "../trajectory";
+import { createSeededRng, distance, type Vec2 } from "../trajectory";
 
 function fakeAgentWindow(ids: number[]) {
   let i = 0;
@@ -62,6 +62,35 @@ function moves(sent: Array<{ method: string; params?: object }>) {
 const QUICK = { duration_ms: 96, steps: 12, jitter: false } as const;
 
 describe("handleMouseMove", () => {
+  it("uses the v2 behaviour state machine when every knob is default", async () => {
+    const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
+    await sm.start("aa11");
+    const fake = makeFakeCdp({ "Input.dispatchMouseEvent": () => ({}) });
+
+    const res = await handleMouseMove(
+      sm,
+      { session_id: "aa11", to_x: 800, to_y: 400 },
+      { cdp: fake.cdp, tabsApi: fake.tabsApi, rng: createSeededRng(9) },
+    );
+
+    if ("code" in res) throw new Error(`unexpected error: ${JSON.stringify(res)}`);
+    // v2 result contract: exact landing, multi-phase point count, and a
+    // Fitts-derived duration well above the v1 floor.
+    expect(res).toMatchObject({ tab_id: 4, from_x: 640, from_y: 360, x: 800, y: 400 });
+    expect(res.x).toBe(800);
+    expect(res.y).toBe(400);
+    expect(res.curve).toBe("bezier");
+    expect(res.steps).toBeGreaterThan(12);
+    expect(res.duration_ms).toBeGreaterThanOrEqual(40);
+    expect(res.duration_ms).toBeLessThanOrEqual(2000);
+    const path = moves(fake.sent);
+    expect(path.length).toBe(res.steps);
+    expect(path[path.length - 1]).toMatchObject({ x: 800, y: 400 });
+    // En-route probing happened through the page-world channel (the fake
+    // reports no overlay and nothing interactive).
+    expect(fake.sent.some((c) => c.method === "Runtime.evaluate")).toBe(true);
+  });
+
   it("glides from the viewport centre when nothing is tracked", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
     await sm.start("aa11");
