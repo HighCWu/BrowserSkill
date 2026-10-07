@@ -9,6 +9,22 @@ Starting from 0.2.0, CLI / Extension / DSH Plugin share the same version number.
 
 ### Added
 
+- On-page visual pointer indicator so a human can follow the agent's input in
+  the borrowed tab in real time. A dedicated content script renders a neutral
+  pointer sprite inside a **closed shadow root** on a single `aria-hidden`,
+  `pointer-events: none` host element (per-mount random class name): it glides
+  to every dispatched trajectory point (~100 ms transitions), plays a local
+  180 ms glide for single-hop element hovers, ripples and switches to an
+  accented sprite on click press/release, shows a direction chevron for wheel
+  gestures, and flashes on typing. Input timing is unchanged except one short,
+  capped (~150 ms) settle wait at a trajectory's landing point and before a
+  teleport-click press, and only while the indicator is enabled. It hides
+  itself through the existing capture-suppress bridge during screenshots,
+  skips rendering in hidden tabs, honours `prefers-reduced-motion`, and tears
+  down every node (including the stylesheet) on session end, tab return, reset
+  and page unload. The daemon ships it enabled by default and advertises the
+  verdict in its handshake response (`cursor_overlay`); setting
+  `BSK_CURSOR_OVERLAY=off` keeps pages free of the indicator nodes entirely.
 - `mouse-move` (and `hover`/`click --glide`) now plan pointer motion with a
   v2 behaviour state machine by default: a Fitts-timed main pulse covering
   85–95% of the distance with a curvature-weighted minimum-jerk profile and

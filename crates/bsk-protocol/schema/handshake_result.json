@@ -15,6 +15,13 @@
         "null"
       ]
     },
+    "cursor_overlay": {
+      "description": "Daemon opt-in for the extension's on-page visual cursor indicator. Present (`true`) when the daemon was started with the overlay enabled (the default); absent when the operator disabled it, so the extension keeps pages free of the indicator nodes.",
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
     "min_compatible_peer": {
       "description": "**Deprecated** — legacy app-semver floor. New peers should use `min_compatible_protocol`; this field is optional and ignored.",
       "type": [

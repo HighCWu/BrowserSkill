@@ -15,6 +15,7 @@ import { isAbortError } from "./vom/capture-abort";
 
 import { ChromiumCdp } from "@/browser-driver/chromium-cdp";
 import type { CdpTarget } from "@/browser-driver/frame-graph";
+import { type CursorVisualNotifier, TELEPORT_TWEEN_MS } from "@/lib/cursor-notify";
 import type { SessionContext, SessionManager } from "@/session-manager/manager";
 import type {
   BlurParams,
@@ -63,6 +64,11 @@ export interface InteractionDeps extends ClickOverlayDeps {
   defaultTimeoutMs?: number;
   /** Keep hover hit-testing active for the caller's next observation/action. */
   keepOverlayBypassAfterHover?: boolean;
+  /**
+   * Visual pointer indicator notifier (no-op unless the daemon enabled the
+   * overlay). Input dispatch sites call it so a human can follow along.
+   */
+  cursor?: CursorVisualNotifier;
 }
 
 export interface ResolvedActionTarget {
@@ -135,6 +141,8 @@ interface GlideOptions {
   dwell?: boolean;
   /** Destination element box; enables inspection stops and landing scatter. */
   box?: { x: number; y: number; width: number; height: number } | null;
+  /** Visual pointer indicator; no-op unless the daemon enabled the overlay. */
+  cursor?: CursorVisualNotifier;
 }
 
 async function glideToPoint(
@@ -159,7 +167,11 @@ async function glideToPoint(
     signal,
     modifiers,
     remember: (p) => cdp.rememberMousePos?.(tabId, p.x, p.y),
+    notify: (p) => options.cursor?.move(tabId, p.x, p.y),
   });
+  // One short, capped wait so the indicator's glide finishes before the
+  // caller presses anything. Resolves immediately when the overlay is off.
+  await options.cursor?.settle(tabId, plan.landed.x, plan.landed.y);
   return plan.landed;
 }
 
@@ -613,14 +625,16 @@ async function dispatchClickAtPoint(
     attempted = false,
     moved = false,
     count = params.click_count ?? 1;
-  const release = () =>
-    deps.cdp.send(tabId, "Input.dispatchMouseEvent", {
+  const release = () => {
+    deps.cursor?.release(tabId, point.x, point.y, count);
+    return deps.cdp.send(tabId, "Input.dispatchMouseEvent", {
       type: "mouseReleased",
       ...point,
       button,
       clickCount: count,
       modifiers,
     });
+  };
   const failure = (error: RpcError): RpcError =>
     beforePress || error.data?.reason === "input_not_ready"
       ? {
@@ -656,6 +670,12 @@ async function dispatchClickAtPoint(
       modifiers,
     });
     deps.cdp.rememberMousePos?.(tabId, point.x, point.y);
+    // Teleport approaches (no glide) still let the indicator glide locally;
+    // give it one capped beat to arrive before the press.
+    if (!params.glide) {
+      deps.cursor?.move(tabId, point.x, point.y, { tweenMs: TELEPORT_TWEEN_MS });
+      await deps.cursor?.settle(tabId, point.x, point.y);
+    }
     if (beforePress) {
       const error = await beforePress();
       if (error) return failure(error);
@@ -675,6 +695,7 @@ async function dispatchClickAtPoint(
       markSent?.();
       attempted = true;
       releaseNeeded = true;
+      deps.cursor?.press(tabId, point.x, point.y, count);
       await deps.cdp.send(tabId, "Input.dispatchMouseEvent", {
         type: "mousePressed",
         ...point,
@@ -861,6 +882,7 @@ export async function handleHover(
     if (params.glide) {
       await glideToPoint(deps.cdp, target.tabId, centre, deps.signal, modifiers, {
         box: elementBox,
+        cursor: deps.cursor,
       });
     } else {
       await deps.cdp.send(target.tabId, "Input.dispatchMouseEvent", {
@@ -869,6 +891,9 @@ export async function handleHover(
         y: centre.y,
         modifiers,
       });
+      // Single hop: let the indicator glide there locally while the tool's
+      // own settle wait runs.
+      deps.cursor?.move(target.tabId, centre.x, centre.y, { tweenMs: TELEPORT_TWEEN_MS });
     }
     // Track the pointer so a later glide starts from where the mouse
     // actually is (both coordinate and element-centroid paths).
@@ -1393,6 +1418,7 @@ export async function handleFill(
     // CDP `Input.insertText` handles IME / multi-byte input out of the
     // box, much more reliably than per-key `dispatchKeyEvent`.
     if (params.value !== "") {
+      deps.cursor?.key(target.tabId);
       await deps.cdp.send(target.tabId, "Input.insertText", { text: params.value });
     }
     if (throwIfAborted(deps.signal)) {
@@ -1689,6 +1715,7 @@ export async function handlePress(
       deps.cdp.trackSessionTab?.(ctx.sessionId, target.tabId);
       deps.onInputSent?.(target.tabId);
       input.markSent();
+      deps.cursor?.key(target.tabId);
       await deps.cdp.send(target.tabId, "Input.dispatchKeyEvent", {
         type: "rawKeyDown",
         key: descriptor.key,

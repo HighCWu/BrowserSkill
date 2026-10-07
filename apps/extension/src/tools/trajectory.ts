@@ -237,6 +237,11 @@ export interface DispatchTrajectoryOptions {
   modifiers?: number;
   /** Called after each dispatched point (used to track pointer position). */
   remember?: (point: Vec2) => void;
+  /**
+   * Visual pointer indicator hook, called after each dispatched point.
+   * Fire-and-forget; implementations must never await page work here.
+   */
+  notify?: (point: Vec2) => void;
 }
 
 /**
@@ -289,6 +294,7 @@ export async function dispatchTrajectory(
     });
     dispatched++;
     options.remember?.({ x: point.x, y: point.y });
+    options.notify?.({ x: point.x, y: point.y });
     if (i < points.length - 1) {
       await trajectorySleep(point.delayMs, options.signal);
     }

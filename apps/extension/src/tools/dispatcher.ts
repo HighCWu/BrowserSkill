@@ -1,5 +1,6 @@
 import type { DebugManager, DebugTicket } from "@/debug/manager";
 import type { DebugParams } from "@/debug/types";
+import { cursorNotifier } from "@/lib/cursor-notify";
 import type { InteractionPreferenceStore } from "@/lib/interaction-preferences";
 import { OVERLAY_AUTOMATION_BYPASS } from "@/lib/overlay-bridge";
 import { ScreenshotExports } from "@/long-screenshot/exports";
@@ -668,6 +669,7 @@ export class ToolDispatcher {
                     signal,
                     bypassOverlay,
                     onInputSent,
+                    cursor: cursorNotifier,
                   }
                 : undefined,
             ),
@@ -686,6 +688,7 @@ export class ToolDispatcher {
                 bypassOverlay: (tabId, enabled) =>
                   this.setHoverBypass((req.params as HoverParams).session_id, tabId, enabled),
                 keepOverlayBypassAfterHover: true,
+                cursor: cursorNotifier,
               }
             : undefined,
         );
@@ -699,7 +702,13 @@ export class ToolDispatcher {
               this.sessions,
               req.params as MouseMoveParams,
               this.cdp
-                ? { cdp: this.cdp, tabsApi: chromeTabsApi, signal, bypassOverlay }
+                ? {
+                    cdp: this.cdp,
+                    tabsApi: chromeTabsApi,
+                    signal,
+                    bypassOverlay,
+                    cursor: cursorNotifier,
+                  }
                 : undefined,
             ),
           signal,
@@ -712,7 +721,13 @@ export class ToolDispatcher {
               this.sessions,
               req.params as WheelParams,
               this.cdp
-                ? { cdp: this.cdp, tabsApi: chromeTabsApi, signal, bypassOverlay }
+                ? {
+                    cdp: this.cdp,
+                    tabsApi: chromeTabsApi,
+                    signal,
+                    bypassOverlay,
+                    cursor: cursorNotifier,
+                  }
                 : undefined,
             ),
           { releaseAfter: true },
@@ -758,7 +773,9 @@ export class ToolDispatcher {
             handleFill(
               this.sessions,
               req.params as FillParams,
-              this.cdp ? { cdp: this.cdp, tabsApi: chromeTabsApi, signal } : undefined,
+              this.cdp
+                ? { cdp: this.cdp, tabsApi: chromeTabsApi, signal, cursor: cursorNotifier }
+                : undefined,
             ),
           signal,
         );
@@ -769,7 +786,15 @@ export class ToolDispatcher {
             handlePress(
               this.sessions,
               req.params as PressParams,
-              this.cdp ? { cdp: this.cdp, tabsApi: chromeTabsApi, signal, onInputSent } : undefined,
+              this.cdp
+                ? {
+                    cdp: this.cdp,
+                    tabsApi: chromeTabsApi,
+                    signal,
+                    onInputSent,
+                    cursor: cursorNotifier,
+                  }
+                : undefined,
             ),
           signal,
         );

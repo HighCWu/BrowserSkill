@@ -6,6 +6,11 @@ import { DebugManager } from "@/debug/manager";
 import { getAuditEnabled } from "@/lib/audit";
 import { attachAuditBridge } from "@/lib/audit-bridge";
 import { ConnectionController } from "@/lib/connection-controller";
+import {
+  cursorNotifier,
+  isCursorOverlayEnabled,
+  setCursorOverlayEnabled,
+} from "@/lib/cursor-notify";
 import { watchDaemonConnection } from "@/lib/daemon-connection-preference";
 import { startHeartbeat } from "@/lib/heartbeat";
 import {
@@ -95,8 +100,14 @@ export default defineBackground(() => {
   });
   // Console capture is daemon-opted-in: apply the handshake verdict on
   // every (re)connect. Absent/false keeps `Runtime.enable` off attach.
+  // The visual pointer indicator follows the same channel with the opposite
+  // default (on): the handshake also carries that verdict, and a change
+  // re-pushes overlay state so mounted indicators appear/disappear at once.
   controller.subscribe((snap) => {
-    if (snap.handshake) cdp.setConsoleCapture(snap.handshake.console_capture === true);
+    if (!snap.handshake) return;
+    cdp.setConsoleCapture(snap.handshake.console_capture === true);
+    const cursorChanged = setCursorOverlayEnabled(snap.handshake.cursor_overlay === true);
+    if (cursorChanged && sessions.list().length > 0) pushAllAgentOverlayStates();
   });
   const debug = new DebugManager(sessions, cdp, chrome.tabs, Date.now, new LocalDebugArchive());
   attachDebugBridge(sessions, debug);
@@ -149,22 +160,31 @@ export default defineBackground(() => {
     if (ctx) void pushOverlayStateForWindow(ctx.agentWindowId);
   }
 
+  /**
+   * Stamp the visual-pointer verdict onto an overlay state message. The
+   * indicator content script mounts only when this flag and an active
+   * control mode arrive together; every other consumer ignores the field.
+   */
+  function withCursorOverlayFlag(state: OverlayAgentStateMessage): OverlayAgentStateMessage {
+    return isCursorOverlayEnabled() ? { ...state, cursor_overlay: true } : state;
+  }
+
   function overlayStateForWindow(windowId?: number): OverlayAgentStateMessage {
     const ctx = typeof windowId === "number" ? sessions.findByWindowId(windowId) : null;
     if (!ctx) {
-      return {
+      return withCursorOverlayFlag({
         type: OVERLAY_AGENT_STATE,
         sessionId: null,
         mode: "hidden",
         ...nextOverlayVersion(),
-      };
+      });
     }
-    return {
+    return withCursorOverlayFlag({
       type: OVERLAY_AGENT_STATE,
       sessionId: ctx.sessionId,
       mode: controlModes.get(ctx.sessionId) ?? "control",
       ...nextOverlayVersion(),
-    };
+    });
   }
 
   /**
@@ -177,12 +197,12 @@ export default defineBackground(() => {
       const ctx = sessions.findByWindowId(windowId);
       if (ctx && isAgentControlledTab(ctx, tabId)) return overlayStateForWindow(windowId);
     }
-    return {
+    return withCursorOverlayFlag({
       type: OVERLAY_AGENT_STATE,
       sessionId: null,
       mode: "hidden",
       ...nextOverlayVersion(),
-    };
+    });
   }
 
   async function pushOverlayStateToTab(

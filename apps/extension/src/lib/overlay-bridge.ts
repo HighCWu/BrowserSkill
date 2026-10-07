@@ -82,6 +82,12 @@ export interface OverlayAgentStateMessage extends OverlayVersion {
   type: typeof OVERLAY_AGENT_STATE;
   sessionId: string | null;
   mode: OverlayMode;
+  /**
+   * Stamped by the background when the daemon handshake enabled the on-page
+   * visual pointer indicator. Consumers other than the indicator content
+   * script ignore it; absent means the indicator must not render.
+   */
+  cursor_overlay?: boolean;
 }
 
 export interface OverlayInterruptRequest {

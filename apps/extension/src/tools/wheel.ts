@@ -1,5 +1,6 @@
 import { ChromiumCdp } from "@/browser-driver/chromium-cdp";
 import { type CdpTarget, cdpTargetKey } from "@/browser-driver/frame-graph";
+import { type CursorVisualNotifier } from "@/lib/cursor-notify";
 import type { SessionContext, SessionManager } from "@/session-manager/manager";
 import type { RpcError, WheelParams, WheelResult } from "@/transport/types";
 import { attachDialogs, markDialogCursor } from "./dialogs";
@@ -26,6 +27,8 @@ export interface WheelDeps {
   signal?: AbortSignal;
   /** Temporarily disable the Agent Window overlay's input blocker. */
   bypassOverlay?: (tabId: number, enabled: boolean) => Promise<void>;
+  /** Visual pointer indicator notifier (no-op unless the overlay is on). */
+  cursor?: CursorVisualNotifier;
 }
 
 interface WheelPoint {
@@ -156,6 +159,7 @@ export async function handleWheel(
         deltaY,
         modifiers,
       });
+      deps.cursor?.wheel(target.tabId, point.x, point.y, deltaX, deltaY);
       // Wheel acknowledgement precedes compositor scrolling. Keep the hidden renderer
       // awake until its resulting frame is available, then restore focus.
       if (input.hidden) await waitForInputPaint(cdp, target.tabId, deps.signal, deadline);

@@ -178,6 +178,13 @@ export interface HandshakeResult {
    * and `tool.console` returns no buffered entries.
    */
   console_capture?: boolean;
+  /**
+   * Daemon opt-in for the on-page visual pointer indicator. Present (true)
+   * when the daemon runs with the overlay enabled (the default); absent
+   * when the operator set `BSK_CURSOR_OVERLAY=off`, in which case the
+   * extension keeps pages free of the indicator nodes.
+   */
+  cursor_overlay?: boolean;
 }
 
 export type ConnectionState = "disconnected" | "connecting" | "connected" | "version_skew";

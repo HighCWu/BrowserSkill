@@ -470,6 +470,12 @@ pub struct HandshakeResult {
     /// buffered console capture for `tool.console`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub console_capture: Option<bool>,
+    /// Daemon opt-in for the extension's on-page visual cursor indicator.
+    /// Present (`true`) when the daemon was started with the overlay enabled
+    /// (the default); absent when the operator disabled it, so the extension
+    /// keeps pages free of the indicator nodes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cursor_overlay: Option<bool>,
 }
 
 #[cfg(test)]
@@ -489,6 +495,7 @@ mod handshake_payload_tests {
         assert_eq!(result.min_compatible_peer, None);
         assert_eq!(result.min_compatible_protocol.as_deref(), Some("1.0"));
         assert_eq!(result.console_capture, None);
+        assert_eq!(result.cursor_overlay, None);
     }
 
     #[test]
@@ -500,6 +507,7 @@ mod handshake_payload_tests {
             min_compatible_peer: None,
             min_compatible_protocol: Some("1.0".parse().unwrap()),
             console_capture: None,
+            cursor_overlay: None,
         };
         let value = serde_json::to_value(&result).unwrap();
         assert!(value.get("console_capture").is_none());
@@ -512,6 +520,30 @@ mod handshake_payload_tests {
         assert_eq!(value["console_capture"], true);
         let round: HandshakeResult = serde_json::from_value(value).unwrap();
         assert_eq!(round.console_capture, Some(true));
+    }
+
+    #[test]
+    fn handshake_result_omits_cursor_overlay_when_disabled() {
+        let result = HandshakeResult {
+            server: "browser-skill-daemon".into(),
+            version: "0.1.0".parse().unwrap(),
+            protocol_version: "1.3".into(),
+            min_compatible_peer: None,
+            min_compatible_protocol: Some("1.0".parse().unwrap()),
+            console_capture: None,
+            cursor_overlay: None,
+        };
+        let value = serde_json::to_value(&result).unwrap();
+        assert!(value.get("cursor_overlay").is_none());
+
+        let on = HandshakeResult {
+            cursor_overlay: Some(true),
+            ..result
+        };
+        let value = serde_json::to_value(&on).unwrap();
+        assert_eq!(value["cursor_overlay"], true);
+        let round: HandshakeResult = serde_json::from_value(value).unwrap();
+        assert_eq!(round.cursor_overlay, Some(true));
     }
 }
 

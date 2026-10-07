@@ -16,6 +16,7 @@
 // project; the implementation here is original.
 
 import { ChromiumCdp } from "@/browser-driver/chromium-cdp";
+import { type CursorVisualNotifier, LANDING_SETTLE_BUDGET_MS } from "@/lib/cursor-notify";
 import type { SessionContext, SessionManager } from "@/session-manager/manager";
 import type { MouseCurve, MouseMoveParams, MouseMoveResult, RpcError } from "@/transport/types";
 import { attachDialogs, markDialogCursor } from "./dialogs";
@@ -49,6 +50,12 @@ export interface MouseMoveDeps {
   signal?: AbortSignal;
   /** Temporarily disable the Agent Window overlay's input blocker. */
   bypassOverlay?: (tabId: number, enabled: boolean) => Promise<void>;
+  /**
+   * Visual pointer indicator notifier (no-op unless the daemon enabled the
+   * overlay). Trajectory points stream to it fire-and-forget; the landing
+   * gets one short capped settle wait.
+   */
+  cursor?: CursorVisualNotifier;
   /** Injected random source for reproducible plans (tests). */
   rng?: () => number;
 }
@@ -218,7 +225,11 @@ export async function handleMouseMove(
       await dispatchTrajectory(deps.cdp, tabId, points, {
         signal: deps.signal,
         remember: (point) => deps.cdp.rememberMousePos?.(tabId, point.x, point.y),
+        notify: (point) => deps.cursor?.move(tabId, point.x, point.y),
       });
+      // One capped beat so the indicator's glide settles at the destination
+      // before the command returns. Zero-cost while the overlay is off.
+      await deps.cursor?.settle(tabId, destination.x, destination.y, LANDING_SETTLE_BUDGET_MS);
       checkActive();
     } finally {
       if (bypassTab !== undefined && deps.bypassOverlay) {

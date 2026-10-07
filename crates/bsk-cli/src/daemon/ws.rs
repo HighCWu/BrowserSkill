@@ -73,6 +73,25 @@ fn console_capture_enabled() -> bool {
     console_capture_enabled_from(std::env::var(CONSOLE_CAPTURE_ENV).ok().as_deref())
 }
 
+/// Environment variable that switches the extension's on-page visual cursor
+/// indicator off.
+///
+/// Enabled by default: during agent input the borrowed tab shows a neutral,
+/// purely visual cursor (plus click/scroll/typing hints) so a human watching
+/// the tab can follow what the agent is doing. Set it to `off`
+/// (case-insensitive, surrounding whitespace ignored) to have the handshake
+/// ask the extension to keep pages free of those nodes — the right setting
+/// when maximum page cleanliness matters more than supervision.
+pub(crate) const CURSOR_OVERLAY_ENV: &str = "BSK_CURSOR_OVERLAY";
+
+fn cursor_overlay_enabled_from(value: Option<&str>) -> bool {
+    !value.is_some_and(|v| v.trim().eq_ignore_ascii_case("off"))
+}
+
+fn cursor_overlay_enabled() -> bool {
+    cursor_overlay_enabled_from(std::env::var(CURSOR_OVERLAY_ENV).ok().as_deref())
+}
+
 pub struct WsServer {
     state: Arc<DaemonState>,
 }
@@ -383,6 +402,9 @@ pub(super) async fn drive_connection<S: tokio::io::AsyncRead + tokio::io::AsyncW
         min_compatible_protocol: Some(MIN_COMPATIBLE_PROTOCOL.to_string()),
         // Absent when off, so the extension treats it as capture disabled.
         console_capture: console_capture_enabled().then_some(true),
+        // Absent when the operator disabled the visual cursor, so the
+        // extension keeps pages free of the indicator nodes.
+        cursor_overlay: cursor_overlay_enabled().then_some(true),
     };
     let mut result = serde_json::to_value(&result)?;
     result["audit_version"] = serde_json::json!(1);
@@ -778,6 +800,21 @@ mod tests {
         assert!(!console_capture_enabled_from(Some("off")));
         assert!(!console_capture_enabled_from(Some("1")));
         assert!(!console_capture_enabled_from(Some("true")));
+    }
+
+    #[test]
+    fn cursor_overlay_enabled_by_default() {
+        assert!(cursor_overlay_enabled_from(None));
+        assert!(cursor_overlay_enabled_from(Some("")));
+        assert!(cursor_overlay_enabled_from(Some("on")));
+        assert!(cursor_overlay_enabled_from(Some(" ON ")));
+    }
+
+    #[test]
+    fn cursor_overlay_disabled_only_by_off_value() {
+        assert!(!cursor_overlay_enabled_from(Some("off")));
+        assert!(!cursor_overlay_enabled_from(Some(" OFF ")));
+        assert!(!cursor_overlay_enabled_from(Some("Off")));
     }
 }
 
