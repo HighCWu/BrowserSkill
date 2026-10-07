@@ -7,6 +7,15 @@ Starting from 0.2.0, CLI / Extension / DSH Plugin share the same version number.
 
 ## [Unreleased]
 
+### Added
+
+- `hover` accepts explicit viewport coordinates: `bsk hover --x <X> --y <Y>` (and
+  the `tool.hover` wire fields `x`/`y`) move the mouse to an absolute point in CSS
+  pixels without resolving an element, for pointer-trajectory scripting. The
+  coordinates must be supplied together, exclude `ref`/`selector`, and are
+  validated against the layout viewport. Optional fields only, so existing
+  callers are unaffected.
+
 ### Fixed
 
 - Extension: input to a background Agent Window tab no longer keeps failing with
