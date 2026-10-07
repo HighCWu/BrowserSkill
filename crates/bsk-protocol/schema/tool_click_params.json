@@ -32,6 +32,13 @@
       "format": "uint32",
       "minimum": 1.0
     },
+    "glide": {
+      "description": "Glide the pointer to the click point along a humanised trajectory instead of teleporting. Mutually exclusive with `capture_id`.",
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
     "image_x": {
       "type": [
         "number",

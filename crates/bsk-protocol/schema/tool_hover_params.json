@@ -6,6 +6,13 @@
     "session_id"
   ],
   "properties": {
+    "glide": {
+      "description": "Glide the pointer to the target along a humanised trajectory instead of moving in a single step.",
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
     "modifiers": {
       "type": [
         "array",

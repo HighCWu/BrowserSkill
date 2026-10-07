@@ -1,0 +1,154 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "MouseMoveResult",
+  "type": "object",
+  "required": [
+    "curve",
+    "duration_ms",
+    "from_x",
+    "from_y",
+    "overshoot",
+    "steps",
+    "tab_id",
+    "x",
+    "y"
+  ],
+  "properties": {
+    "curve": {
+      "$ref": "#/definitions/MouseCurve"
+    },
+    "dialogs": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/JavaScriptDialogInfo"
+      }
+    },
+    "duration_ms": {
+      "description": "Planned trajectory duration: the sum of the per-point sleeps.",
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0.0
+    },
+    "from_x": {
+      "description": "Start point the trajectory actually used.",
+      "type": "number",
+      "format": "double"
+    },
+    "from_y": {
+      "type": "number",
+      "format": "double"
+    },
+    "overshoot": {
+      "description": "Whether an overshoot-and-correct segment was used.",
+      "type": "boolean"
+    },
+    "steps": {
+      "description": "Number of `mouseMoved` events dispatched, including overshoot return steps.",
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0.0
+    },
+    "tab_id": {
+      "type": "integer",
+      "format": "int64"
+    },
+    "x": {
+      "description": "Final dispatch point (equals the requested destination).",
+      "type": "number",
+      "format": "double"
+    },
+    "y": {
+      "type": "number",
+      "format": "double"
+    }
+  },
+  "definitions": {
+    "JavaScriptDialogHandledAction": {
+      "description": "How the extension resolved the dialog so CDP could continue.",
+      "type": "string",
+      "enum": [
+        "accepted",
+        "dismissed"
+      ]
+    },
+    "JavaScriptDialogInfo": {
+      "description": "One observed + handled JavaScript dialog during a tool call.",
+      "type": "object",
+      "required": [
+        "handled",
+        "message",
+        "sequence",
+        "tab_id",
+        "type"
+      ],
+      "properties": {
+        "default_prompt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "handled": {
+          "$ref": "#/definitions/JavaScriptDialogHandledAction"
+        },
+        "has_browser_handler": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "message": {
+          "type": "string"
+        },
+        "sequence": {
+          "description": "Monotonic per-tab sequence for ordering within a session.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "tab_id": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "type": {
+          "$ref": "#/definitions/JavaScriptDialogType"
+        },
+        "url": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "JavaScriptDialogType": {
+      "description": "Native JS dialog kind reported by CDP.",
+      "type": "string",
+      "enum": [
+        "alert",
+        "confirm",
+        "prompt",
+        "beforeunload"
+      ]
+    },
+    "MouseCurve": {
+      "description": "Path shape for a humanised mouse move (`tool.mouse_move`, or the `glide` option of `tool.hover` / `tool.click`).",
+      "oneOf": [
+        {
+          "description": "Cubic Bézier through two random control points offset perpendicular to the start–end line (default).",
+          "type": "string",
+          "enum": [
+            "bezier"
+          ]
+        },
+        {
+          "description": "Straight line between start and end.",
+          "type": "string",
+          "enum": [
+            "linear"
+          ]
+        }
+      ]
+    }
+  }
+}

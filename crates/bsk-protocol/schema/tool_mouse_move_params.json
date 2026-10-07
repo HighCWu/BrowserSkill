@@ -1,0 +1,122 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "MouseMoveParams",
+  "description": "Move the pointer along a humanised trajectory (`tool.mouse_move`).",
+  "type": "object",
+  "required": [
+    "session_id"
+  ],
+  "properties": {
+    "curve": {
+      "description": "Path shape. Defaults to `bezier`.",
+      "anyOf": [
+        {
+          "$ref": "#/definitions/MouseCurve"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "duration_ms": {
+      "description": "Approximate wall-clock duration of the move. Defaults to an adaptive value between 350–950 ms based on travel distance.",
+      "type": [
+        "integer",
+        "null"
+      ],
+      "format": "uint32",
+      "minimum": 1.0
+    },
+    "from_x": {
+      "description": "Start X. Both `from_*` fields must be given together; when omitted the trajectory starts at the pointer's last known position on the tab, or the viewport centre if none is recorded.",
+      "type": [
+        "number",
+        "null"
+      ],
+      "format": "double"
+    },
+    "from_y": {
+      "description": "Start Y. See `from_x`.",
+      "type": [
+        "number",
+        "null"
+      ],
+      "format": "double"
+    },
+    "jitter": {
+      "description": "Add ±0.5 px per-point noise. Defaults to `true`.",
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "overshoot": {
+      "description": "Overshoot the destination by 2–8% of the travel distance and glide back. Defaults to a random ~12% chance.",
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "session_id": {
+      "type": "string"
+    },
+    "steps": {
+      "description": "Number of dispatched move points (including the destination). Defaults to `duration_ms / 12` clamped to 12–80.",
+      "type": [
+        "integer",
+        "null"
+      ],
+      "format": "uint32",
+      "minimum": 2.0
+    },
+    "tab_id": {
+      "description": "Target tab. Defaults to the Agent Window's active tab.",
+      "type": [
+        "integer",
+        "null"
+      ],
+      "format": "int64"
+    },
+    "timeout_ms": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "format": "uint32",
+      "minimum": 1.0
+    },
+    "to_x": {
+      "description": "Destination X in top-level viewport CSS pixels.",
+      "default": 0.0,
+      "type": "number",
+      "format": "double"
+    },
+    "to_y": {
+      "description": "Destination Y in top-level viewport CSS pixels.",
+      "default": 0.0,
+      "type": "number",
+      "format": "double"
+    }
+  },
+  "definitions": {
+    "MouseCurve": {
+      "description": "Path shape for a humanised mouse move (`tool.mouse_move`, or the `glide` option of `tool.hover` / `tool.click`).",
+      "oneOf": [
+        {
+          "description": "Cubic Bézier through two random control points offset perpendicular to the start–end line (default).",
+          "type": "string",
+          "enum": [
+            "bezier"
+          ]
+        },
+        {
+          "description": "Straight line between start and end.",
+          "type": "string",
+          "enum": [
+            "linear"
+          ]
+        }
+      ]
+    }
+  }
+}

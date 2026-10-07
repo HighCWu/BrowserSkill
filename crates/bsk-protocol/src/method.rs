@@ -80,6 +80,8 @@ pub enum Method {
     ToolClick,
     #[serde(rename = "tool.hover")]
     ToolHover,
+    #[serde(rename = "tool.mouse_move")]
+    ToolMouseMove,
     #[serde(rename = "tool.wheel")]
     ToolWheel,
     #[serde(rename = "tool.scroll_to")]
@@ -208,7 +210,10 @@ impl Method {
 
             // Transient input — no committed browser action, but still page
             // input. It must be stopped by pending user interrupts.
-            Method::ToolHover | Method::ToolObserve | Method::ToolScreenshotFullPage => MethodEffect::TransientInput,
+            Method::ToolHover
+            | Method::ToolMouseMove
+            | Method::ToolObserve
+            | Method::ToolScreenshotFullPage => MethodEffect::TransientInput,
 
             // Passive reads — transparent.
             // `record_stop` / `record_await` observe / finish a recording
@@ -364,6 +369,7 @@ mod tests {
         assert!(!Method::ToolTabList.is_mutating());
         assert!(!Method::ToolSnapshot.is_mutating());
         assert!(!Method::ToolHover.is_mutating());
+        assert!(!Method::ToolMouseMove.is_mutating());
         assert!(!Method::ToolObserve.is_mutating());
         assert!(!Method::ToolGetHtml.is_mutating());
         assert!(!Method::ToolScreenshot.is_mutating());
@@ -444,6 +450,7 @@ mod tests {
     fn interrupt_gate_includes_transient_input() {
         assert!(!Method::ToolSnapshot.requires_interrupt_gate());
         assert!(Method::ToolHover.requires_interrupt_gate());
+        assert!(Method::ToolMouseMove.requires_interrupt_gate());
         assert!(Method::ToolObserve.requires_interrupt_gate());
         assert!(Method::ToolClick.requires_interrupt_gate());
         assert!(Method::ToolWheel.requires_interrupt_gate());
