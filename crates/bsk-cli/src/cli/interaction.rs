@@ -209,7 +209,7 @@ pub fn dispatch_click(args: ClickArgs, format: Format) -> Result<(), CliError> {
 
 #[derive(Debug, Clone, Args)]
 pub struct HoverArgs {
-    /// Snapshot ref (`@e3`, `e3`) or CSS selector. Optional when `--ref`/`--selector` is used.
+    /// Snapshot ref (`@e3`, `e3`) or CSS selector. Optional when `--ref`/`--selector` or `--x`/`--y` is used.
     pub target: Option<String>,
 
     /// Force-treat the value as a snapshot ref (overrides positional detection).
@@ -219,6 +219,15 @@ pub struct HoverArgs {
     /// Force-treat the value as a CSS selector.
     #[arg(long = "selector")]
     pub selector: Option<String>,
+
+    /// Viewport-relative X coordinate (CSS pixels). Moves the mouse to
+    /// this point directly, without resolving an element. Requires `--y`.
+    #[arg(long = "x", value_name = "X")]
+    pub x: Option<f64>,
+
+    /// Viewport-relative Y coordinate (CSS pixels). Requires `--x`.
+    #[arg(long = "y", value_name = "Y")]
+    pub y: Option<f64>,
 
     #[arg(long)]
     pub session: String,
@@ -240,17 +249,24 @@ pub struct HoverArgs {
 
 pub fn dispatch_hover(args: HoverArgs, format: Format) -> Result<(), CliError> {
     let info = ensure_daemon().context("ensure daemon is running")?;
-    let (ref_, selector) = split_target(
-        args.target.clone(),
-        args.ref_.clone(),
-        args.selector.clone(),
-    )?;
+    let point = hover_point(&args)?;
+    let (ref_, selector) = if point.is_some() {
+        (None, None)
+    } else {
+        split_target(
+            args.target.clone(),
+            args.ref_.clone(),
+            args.selector.clone(),
+        )?
+    };
     let modifiers = parse_modifiers(&args.modifiers)
         .map_err(|e| CliError::Local(anyhow::anyhow!("--modifiers: {e}")))?;
     let params = HoverParams {
         session_id: args.session.clone(),
         ref_,
         selector,
+        x: point.map(|(x, _)| x),
+        y: point.map(|(_, y)| y),
         tab_id: args.tab_id,
         modifiers: if modifiers.is_empty() {
             None
@@ -286,6 +302,25 @@ pub fn dispatch_hover(args: HoverArgs, format: Format) -> Result<(), CliError> {
         }
     }
     Ok(())
+}
+
+/// Resolve the explicit hover point from `--x`/`--y`. The two flags must
+/// be supplied together and are mutually exclusive with any element
+/// target (`<target>`, `--ref`, `--selector`).
+fn hover_point(args: &HoverArgs) -> Result<Option<(f64, f64)>, CliError> {
+    match (args.x, args.y) {
+        (None, None) => Ok(None),
+        (Some(x), Some(y)) => {
+            if args.target.is_some() || args.ref_.is_some() || args.selector.is_some() {
+                return Err(CliError::Local(anyhow::anyhow!(
+                    "pass exactly one of: <target>/--ref/--selector, or --x/--y coordinates"
+                )));
+            }
+            Ok(Some((x, y)))
+        }
+        (Some(_), None) => Err(CliError::Local(anyhow::anyhow!("--x requires --y"))),
+        (None, Some(_)) => Err(CliError::Local(anyhow::anyhow!("--y requires --x"))),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -785,5 +820,60 @@ mod tests {
         assert_eq!(parsed.args.target.as_deref(), Some("@e138"));
         assert_eq!(parsed.args.values, vec!["us", "ca"]);
         assert_eq!(parsed.args.session, "ohli");
+    }
+
+    fn hover_wrapper() -> impl Fn(&[&str]) -> Result<HoverArgs, String> {
+        use clap::Parser;
+
+        #[derive(Parser)]
+        #[command(name = "hover")]
+        struct Wrapper {
+            #[command(flatten)]
+            args: HoverArgs,
+        }
+        move |argv: &[&str]| {
+            Wrapper::try_parse_from(std::iter::once("hover").chain(argv.iter().copied()))
+                .map(|w| w.args)
+                .map_err(|e| e.to_string())
+        }
+    }
+
+    #[test]
+    fn hover_clap_accepts_coordinate_flags() {
+        let parse = hover_wrapper();
+        let parsed = parse(&["--x", "500", "--y", "300", "--session", "ohli"])
+            .expect("hover --x/--y should parse");
+        assert_eq!(parsed.x, Some(500.0));
+        assert_eq!(parsed.y, Some(300.0));
+        assert!(parsed.target.is_none());
+        let parsed = parse(&["--session", "ohli", "@e3"]).expect("plain hover should parse");
+        assert_eq!(parsed.x, None);
+        assert_eq!(parsed.y, None);
+    }
+
+    #[test]
+    fn hover_point_rejects_partial_and_conflicting_targets() {
+        let parse = hover_wrapper();
+        let args =
+            parse(&["--x", "500", "--session", "ohli"]).expect("--x alone should still parse");
+        assert!(hover_point(&args).is_err(), "--x alone must be rejected");
+        let args =
+            parse(&["--y", "300", "--session", "ohli"]).expect("--y alone should still parse");
+        assert!(hover_point(&args).is_err(), "--y alone must be rejected");
+        let args = parse(&[
+            "--x",
+            "500",
+            "--y",
+            "300",
+            "--ref",
+            "@e3",
+            "--session",
+            "ohli",
+        ])
+        .expect("--x/--y with --ref should parse");
+        assert!(
+            hover_point(&args).is_err(),
+            "coordinates combined with an element target must be rejected"
+        );
     }
 }
