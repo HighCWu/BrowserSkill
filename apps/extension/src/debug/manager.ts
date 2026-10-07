@@ -49,6 +49,7 @@ const ACTIONS = new Set([
   "tool.press",
   "tool.select",
   "tool.hover",
+  "tool.mouse_move",
   "tool.evaluate",
   "tool.wheel",
   "tool.scroll_to",

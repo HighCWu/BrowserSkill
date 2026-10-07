@@ -18,6 +18,7 @@ import type {
   GetHtmlParams,
   HoverParams,
   HoverResult,
+  MouseMoveParams,
   NavigateBackParams,
   NavigateForwardParams,
   NavigateParams,
@@ -63,6 +64,7 @@ import {
   handlePress,
   handleSelect,
 } from "./interaction";
+import { handleMouseMove } from "./mouse-move";
 import {
   handleNavigate,
   handleNavigateBack,
@@ -689,6 +691,19 @@ export class ToolDispatcher {
         );
         return this.rememberHover((req.params as HoverParams).session_id, result);
       }
+      case "tool.mouse_move":
+        return this.withHoverReleaseForRequest(
+          req.params as MouseMoveParams,
+          () =>
+            handleMouseMove(
+              this.sessions,
+              req.params as MouseMoveParams,
+              this.cdp
+                ? { cdp: this.cdp, tabsApi: chromeTabsApi, signal, bypassOverlay }
+                : undefined,
+            ),
+          signal,
+        );
       case "tool.wheel":
         return this.withHoverReassert(
           req.params as WheelParams,
@@ -1013,6 +1028,7 @@ function sessionIdForBrowserControlMethod(req: RequestFrame): string | null {
     case "tool.reload":
     case "tool.click":
     case "tool.hover":
+    case "tool.mouse_move":
     case "tool.wheel":
     case "tool.scroll_to":
     case "tool.focus":

@@ -26,6 +26,7 @@ const pageTools = new Set([
   "tool.reload",
   "tool.click",
   "tool.hover",
+  "tool.mouse_move",
   "tool.wheel",
   "tool.scroll_to",
   "tool.focus",

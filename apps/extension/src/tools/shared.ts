@@ -6,7 +6,12 @@
 // exactly the same sandbox + visibility rules as the M6 observation
 // handlers (review parity).
 
-import type { CdpDebuggee, CdpDispatchGuard, DialogCursor } from "@/browser-driver/chromium-cdp";
+import type {
+  CdpDebuggee,
+  CdpDispatchGuard,
+  DialogCursor,
+  MousePosition,
+} from "@/browser-driver/chromium-cdp";
 import type { CdpFrameGraph, CdpTarget } from "@/browser-driver/frame-graph";
 import {
   isAgentControlledTab,
@@ -76,6 +81,10 @@ export interface CdpRunner {
   restoreBackgroundExecution?(sessionId: string, tabId: number): Promise<void>;
   trackSessionTab?(sessionId: string, tabId: number): void;
   releaseSessionTab?(sessionId: string, tabId: number): Promise<void>;
+  /** Last pointer position dispatched on this tab, or undefined before any tracked move. */
+  lastMousePos?(tabId: number): MousePosition | undefined;
+  /** Record the pointer position after dispatching a real mouse move. */
+  rememberMousePos?(tabId: number, x: number, y: number): void;
   onEvent?(handler: (source: CdpDebuggee, method: string, params: unknown) => void): {
     dispose(): void;
   };

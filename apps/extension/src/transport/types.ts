@@ -510,6 +510,7 @@ export type ReloadResult = NavigateHistoryResult;
 
 export type MouseButton = "left" | "middle" | "right";
 export type KeyModifier = "alt" | "ctrl" | "meta" | "shift";
+export type MouseCurve = "bezier" | "linear";
 
 export interface ClickParams {
   capture_id?: string;
@@ -522,6 +523,8 @@ export interface ClickParams {
   button?: MouseButton;
   click_count?: number;
   modifiers?: KeyModifier[];
+  /** Glide to the click point along a humanised trajectory; exclusive with capture_id. */
+  glide?: boolean;
   timeout_ms?: number;
 }
 
@@ -544,7 +547,37 @@ export interface HoverParams {
   tab_id?: number;
   modifiers?: KeyModifier[];
   settle_ms?: number;
+  /** Glide along a humanised trajectory instead of a single move. */
+  glide?: boolean;
   timeout_ms?: number;
+}
+
+export interface MouseMoveParams {
+  session_id: string;
+  to_x: number;
+  to_y: number;
+  from_x?: number;
+  from_y?: number;
+  duration_ms?: number;
+  steps?: number;
+  curve?: MouseCurve;
+  overshoot?: boolean;
+  jitter?: boolean;
+  tab_id?: number;
+  timeout_ms?: number;
+}
+
+export interface MouseMoveResult {
+  tab_id: number;
+  from_x: number;
+  from_y: number;
+  x: number;
+  y: number;
+  steps: number;
+  duration_ms: number;
+  overshoot: boolean;
+  curve: MouseCurve;
+  dialogs?: JavaScriptDialogInfo[];
 }
 
 export interface HoverResult {
