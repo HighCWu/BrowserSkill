@@ -22,6 +22,7 @@ pub mod install_skill;
 pub mod interaction;
 pub(crate) mod interaction_policy;
 pub mod logs;
+pub mod mouse_move;
 pub mod navigate;
 pub mod network;
 pub mod observe;
@@ -54,6 +55,7 @@ use crate::cli::install_skill::InstallSkillArgs;
 use crate::cli::interaction::{
     BlurArgs, ClickArgs, FillArgs, FocusArgs, HoverArgs, PressArgs, SelectArgs,
 };
+use crate::cli::mouse_move::MouseMoveArgs;
 use crate::cli::navigate::{NavigateCommand, NavigateHistoryArgs, ReloadArgs};
 use crate::cli::network::NetworkArgs;
 use crate::cli::observe::ObserveArgs;
@@ -183,6 +185,10 @@ pub enum Command {
 
     /// Hover a snapshot ref or CSS selector.
     Hover(HoverArgs),
+
+    /// Glide the pointer along a humanised trajectory to viewport coordinates.
+    #[command(name = "mouse-move")]
+    MouseMove(MouseMoveArgs),
 
     /// Dispatch a native mouse-wheel event at the viewport centre or an element.
     Wheel(WheelArgs),

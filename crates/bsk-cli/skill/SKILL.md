@@ -97,6 +97,7 @@ Choose the relevant example, using a ref that actually appeared on the page:
 | Select an option | `bsk select @e3 --value "option-value" --session <id>` |
 | Press a key | `bsk press Enter --ref @e3 --session <id>` |
 | Reveal a hover menu | `bsk hover @e3 --session <id>` |
+| Move the pointer along a human path | `bsk mouse-move --x 800 --y 400 --session <id>` |
 | Reveal an element | `bsk scroll-to @e3 --session <id>` |
 | Scroll with wheel input | `bsk wheel --delta-y 600 --session <id>` |
 | Focus or leave a field | `bsk focus @e3 --session <id>` / `bsk blur @e3 --session <id>` |

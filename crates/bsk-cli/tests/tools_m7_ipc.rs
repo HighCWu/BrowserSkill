@@ -380,6 +380,7 @@ async fn click_round_trips_ref_and_modifiers() {
             button: Some(MouseButton::Right),
             click_count: Some(1),
             modifiers: Some(vec![KeyModifier::Ctrl, KeyModifier::Shift]),
+            glide: None,
             timeout_ms: Some(5_000),
         },
     )
@@ -751,6 +752,7 @@ async fn m7_tools_propagate_extension_errors() {
             button: None,
             click_count: None,
             modifiers: None,
+            glide: None,
             timeout_ms: Some(5_000),
         },
     )

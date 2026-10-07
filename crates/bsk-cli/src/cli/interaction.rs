@@ -145,6 +145,11 @@ pub struct ClickArgs {
     #[arg(long, default_value = "")]
     pub modifiers: String,
 
+    /// Glide the pointer to the click point along a humanised trajectory
+    /// instead of teleporting. Cannot be combined with `--capture`.
+    #[arg(long, conflicts_with = "capture_id")]
+    pub glide: bool,
+
     #[arg(long, default_value = "30s", value_parser = parse_timeout_ms)]
     pub timeout: u32,
 }
@@ -173,6 +178,7 @@ pub fn dispatch_click(args: ClickArgs, format: Format) -> Result<(), CliError> {
         } else {
             Some(modifiers)
         },
+        glide: if args.glide { Some(true) } else { None },
         timeout_ms: Some(args.timeout),
     };
     let reply: ClickResult = call(
@@ -243,6 +249,11 @@ pub struct HoverArgs {
     #[arg(long = "settle", default_value = "200ms", value_parser = parse_timeout_ms)]
     pub settle: u32,
 
+    /// Glide the pointer to the target along a humanised trajectory
+    /// instead of moving in a single step.
+    #[arg(long)]
+    pub glide: bool,
+
     #[arg(long, default_value = "30s", value_parser = parse_timeout_ms)]
     pub timeout: u32,
 }
@@ -274,6 +285,7 @@ pub fn dispatch_hover(args: HoverArgs, format: Format) -> Result<(), CliError> {
             Some(modifiers)
         },
         settle_ms: Some(args.settle),
+        glide: if args.glide { Some(true) } else { None },
         timeout_ms: Some(args.timeout),
     };
     let reply: HoverResult = call(
@@ -874,6 +886,70 @@ mod tests {
         assert!(
             hover_point(&args).is_err(),
             "coordinates combined with an element target must be rejected"
+        );
+    }
+
+    #[test]
+    fn hover_clap_accepts_glide_flag() {
+        use clap::Parser;
+
+        #[derive(Parser)]
+        #[command(name = "hover")]
+        struct Wrapper {
+            #[command(flatten)]
+            args: HoverArgs,
+        }
+
+        let parsed = Wrapper::try_parse_from([
+            "hover",
+            "--x",
+            "500",
+            "--y",
+            "300",
+            "--glide",
+            "--session",
+            "ohli",
+        ])
+        .expect("hover --glide should parse");
+        assert!(parsed.args.glide);
+        let parsed = Wrapper::try_parse_from(["hover", "@e3", "--session", "ohli"])
+            .expect("plain hover should parse");
+        assert!(!parsed.args.glide, "glide defaults to off");
+    }
+
+    #[test]
+    fn click_clap_accepts_glide_and_rejects_glide_with_capture() {
+        use clap::Parser;
+
+        #[derive(Parser)]
+        #[command(name = "click")]
+        struct Wrapper {
+            #[command(flatten)]
+            args: ClickArgs,
+        }
+
+        let parsed = Wrapper::try_parse_from(["click", "@e3", "--glide", "--session", "ohli"])
+            .expect("click --glide should parse");
+        assert!(parsed.args.glide);
+        let parsed = Wrapper::try_parse_from(["click", "@e3", "--session", "ohli"])
+            .expect("plain click should parse");
+        assert!(!parsed.args.glide, "glide defaults to off");
+
+        let conflict = Wrapper::try_parse_from([
+            "click",
+            "--capture",
+            "cap-1",
+            "--image-x",
+            "10",
+            "--image-y",
+            "20",
+            "--glide",
+            "--session",
+            "ohli",
+        ]);
+        assert!(
+            conflict.is_err(),
+            "--glide must conflict with --capture at parse time"
         );
     }
 }
