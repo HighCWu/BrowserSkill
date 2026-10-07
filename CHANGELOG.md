@@ -22,6 +22,20 @@ Starting from 0.2.0, CLI / Extension / DSH Plugin share the same version number.
   coordinates must be supplied together, exclude `ref`/`selector`, and are
   validated against the layout viewport. Optional fields only, so existing
   callers are unaffected.
+- `mouse-move` glides the pointer along a humanised trajectory:
+  `bsk mouse-move --x <X> --y <Y>` (wire method `tool.mouse_move`) dispatches a
+  planned sequence of real `mouseMoved` events with genuine inter-point sleeps —
+  a cubic Bézier path with random perpendicular control anchors, an ease-in-out
+  velocity envelope, ±0.5 px per-point jitter, and an occasional
+  overshoot-and-correct tail (~12% chance). Duration adapts to travel distance
+  (350–950 ms); point count, curve, overshoot and jitter are exposed as
+  optional knobs. The move starts from the tab's last dispatched pointer
+  position (now tracked across `mouse-move`, `hover` and `click`) or the
+  viewport centre, and can be overridden with `--from-x/--from-y`.
+- `hover` and `click` accept `--glide` (wire field `glide`) to approach the
+  target along the same trajectory instead of teleporting. Without the flag
+  their behaviour is unchanged; `click --glide` is mutually exclusive with
+  `--capture` (enforced by the CLI parser and the extension).
 
 ### Fixed
 
