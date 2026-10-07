@@ -625,7 +625,32 @@ describe("ChromiumCdp", () => {
     expect(api.sendCommand).toHaveBeenCalledWith({ tabId: 9 }, "Page.enable", {});
   });
 
-  it("enables console capture domains best-effort during attach", async () => {
+  it("attach skips console capture domains while capture is disabled", async () => {
+    const { api } = fakeApi();
+    const cdp = new ChromiumCdp(api);
+    await cdp.ensureAttached(12);
+    const consoleDomainCalls = (api.sendCommand as ReturnType<typeof vi.fn>).mock.calls.filter(
+      ([, method]) => method === "Runtime.enable" || method === "Log.enable",
+    );
+    expect(consoleDomainCalls).toHaveLength(0);
+
+    // An explicit capture request is a no-op too — callers read an empty
+    // buffer instead of paying the domain-enable leak.
+    await cdp.ensureConsoleCapture(12);
+    expect(
+      (api.sendCommand as ReturnType<typeof vi.fn>).mock.calls.filter(
+        ([, method]) => method === "Runtime.enable" || method === "Log.enable",
+      ),
+    ).toHaveLength(0);
+
+    // Opting back in re-enables domains on the next explicit request.
+    cdp.setConsoleCapture(true);
+    await cdp.ensureConsoleCapture(12);
+    expect(api.sendCommand).toHaveBeenCalledWith({ tabId: 12 }, "Runtime.enable", {});
+    expect(api.sendCommand).toHaveBeenCalledWith({ tabId: 12 }, "Log.enable", {});
+  });
+
+  it("attach enables console capture domains best-effort when opted in", async () => {
     const { api } = fakeApi();
     (api.sendCommand as ReturnType<typeof vi.fn>).mockImplementation(
       async (_target, method: string) => {
@@ -634,6 +659,7 @@ describe("ChromiumCdp", () => {
       },
     );
     const cdp = new ChromiumCdp(api);
+    cdp.setConsoleCapture(true);
     await expect(cdp.ensureAttached(12)).resolves.toBeUndefined();
     expect(cdp.isAttached(12)).toBe(true);
     expect(api.sendCommand).toHaveBeenCalledWith({ tabId: 12 }, "Runtime.enable", {});
@@ -649,6 +675,7 @@ describe("ChromiumCdp", () => {
       },
     );
     const cdp = new ChromiumCdp(api);
+    cdp.setConsoleCapture(true);
     // Attach is best-effort: Log.enable fails but attach still succeeds,
     // leaving the tab unmarked so capture can be retried.
     await cdp.ensureAttached(12);

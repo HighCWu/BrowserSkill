@@ -93,6 +93,11 @@ export default defineBackground(() => {
       return session !== null && (!session.remote || isAgentControlledTab(session, tabId));
     },
   });
+  // Console capture is daemon-opted-in: apply the handshake verdict on
+  // every (re)connect. Absent/false keeps `Runtime.enable` off attach.
+  controller.subscribe((snap) => {
+    if (snap.handshake) cdp.setConsoleCapture(snap.handshake.console_capture === true);
+  });
   const debug = new DebugManager(sessions, cdp, chrome.tabs, Date.now, new LocalDebugArchive());
   attachDebugBridge(sessions, debug);
   chrome.debugger.onDetach.addListener((source) => {

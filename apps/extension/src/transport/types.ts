@@ -172,6 +172,12 @@ export interface HandshakeResult {
   min_compatible_peer?: string;
   /** Protocol floor advertised by the daemon; absent on legacy daemons. */
   min_compatible_protocol?: string;
+  /**
+   * Daemon opt-in for CDP console capture. Absent or false keeps capture
+   * off: attaching to a tab never sends `Runtime.enable` / `Log.enable`,
+   * and `tool.console` returns no buffered entries.
+   */
+  console_capture?: boolean;
 }
 
 export type ConnectionState = "disconnected" | "connecting" | "connected" | "version_skew";

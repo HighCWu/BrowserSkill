@@ -8,6 +8,13 @@
     "version"
   ],
   "properties": {
+    "console_capture": {
+      "description": "Daemon opt-in for extension-side CDP console capture. Absent (the default) keeps capture off: attaching to a tab never sends `Runtime.enable` / `Log.enable`. Some daemons run `on` to restore buffered console capture for `tool.console`.",
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
     "min_compatible_peer": {
       "description": "**Deprecated** — legacy app-semver floor. New peers should use `min_compatible_protocol`; this field is optional and ignored.",
       "type": [

@@ -196,6 +196,14 @@ export class ChromiumCdp {
   private readonly consoleBuffers = new Map<number, ConsoleEntry[]>();
   private readonly consoleSequences = new Map<number, number>();
   private readonly consoleDomainsEnabledTabs = new Set<number>();
+  /**
+   * Console capture is opt-in: while off, attaching to a tab never sends
+   * `Runtime.enable` / `Log.enable` (a strong automation signal for
+   * anti-bot stacks) and buffered console reads stay empty. The daemon
+   * flips this on through its handshake response when the operator sets
+   * `BSK_CONSOLE_CAPTURE=on`.
+   */
+  private consoleCaptureEnabled = false;
   private readonly networkBuffers = new Map<number, NetworkEntry[]>();
   private readonly networkSequences = new Map<number, number>();
   private readonly networkDomainsEnabledTabs = new Set<number>();
@@ -227,6 +235,16 @@ export class ChromiumCdp {
   /** Identity of this actual debugger attachment, independent of frame topology. */
   getAttachmentId(tabId: number): string | undefined {
     return this.attachmentIds.get(tabId);
+  }
+
+  /**
+   * Toggle CDP console capture (`Runtime.enable` / `Log.enable` on
+   * attach). Off by default; takes effect for future attachments and
+   * for explicit `ensureConsoleCapture` calls.
+   */
+  setConsoleCapture(enabled: boolean): void {
+    this.consoleCaptureEnabled = enabled;
+    if (!enabled) this.consoleDomainsEnabledTabs.clear();
   }
 
   /** Attach to `tabId` if we haven't already in this driver. */
@@ -296,7 +314,10 @@ export class ChromiumCdp {
         check();
         await this.enablePageDomain(tabId);
         check();
-        await this.enableConsoleDomains(tabId);
+        if (this.consoleCaptureEnabled) {
+          check();
+          await this.enableConsoleDomains(tabId);
+        }
         check();
         await this.enableNetworkDomainBestEffort(tabId);
         check();
@@ -514,8 +535,13 @@ export class ChromiumCdp {
     return buf.filter((entry) => entry.sequence > cursor);
   }
 
-  /** Ensure CDP domains for console capture are enabled for this tab. */
+  /**
+   * Ensure CDP domains for console capture are enabled for this tab.
+   * No-op while console capture is disabled: callers then read an empty
+   * buffer instead of paying the `Runtime.enable` / `Log.enable` leak.
+   */
   async ensureConsoleCapture(tabId: number): Promise<void> {
+    if (!this.consoleCaptureEnabled) return;
     if (!this.attachedTabs.has(tabId)) {
       await this.ensureAttached(tabId);
       return;

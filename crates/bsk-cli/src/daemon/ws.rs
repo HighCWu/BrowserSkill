@@ -56,6 +56,23 @@ pub(super) fn origin_allowed(origin: &str, allow_any: bool) -> bool {
     false
 }
 
+/// Environment variable that switches extension-side CDP console capture on.
+///
+/// Unset (the default) keeps capture off: attaching to a tab then never sends
+/// `Runtime.enable` / `Log.enable`, which anti-bot stacks treat as a strong
+/// automation signal. Set it to `on` (case-insensitive, surrounding
+/// whitespace ignored) to have the handshake ask the extension to restore
+/// buffered console capture for `tool.console`.
+pub(crate) const CONSOLE_CAPTURE_ENV: &str = "BSK_CONSOLE_CAPTURE";
+
+fn console_capture_enabled_from(value: Option<&str>) -> bool {
+    value.is_some_and(|v| v.trim().eq_ignore_ascii_case("on"))
+}
+
+fn console_capture_enabled() -> bool {
+    console_capture_enabled_from(std::env::var(CONSOLE_CAPTURE_ENV).ok().as_deref())
+}
+
 pub struct WsServer {
     state: Arc<DaemonState>,
 }
@@ -364,6 +381,8 @@ pub(super) async fn drive_connection<S: tokio::io::AsyncRead + tokio::io::AsyncW
         protocol_version: PROTOCOL_VERSION.to_string(),
         min_compatible_peer: Some(legacy_min_peer),
         min_compatible_protocol: Some(MIN_COMPATIBLE_PROTOCOL.to_string()),
+        // Absent when off, so the extension treats it as capture disabled.
+        console_capture: console_capture_enabled().then_some(true),
     };
     let mut result = serde_json::to_value(&result)?;
     result["audit_version"] = serde_json::json!(1);
@@ -743,6 +762,22 @@ mod tests {
     #[test]
     fn origin_allowlist_bypassed_when_allow_any() {
         assert!(origin_allowed("http://localhost", true));
+    }
+
+    #[test]
+    fn console_capture_disabled_by_default() {
+        assert!(!console_capture_enabled_from(None));
+        assert!(!console_capture_enabled_from(Some("")));
+    }
+
+    #[test]
+    fn console_capture_enabled_only_by_on_value() {
+        assert!(console_capture_enabled_from(Some("on")));
+        assert!(console_capture_enabled_from(Some(" ON ")));
+        assert!(console_capture_enabled_from(Some("On")));
+        assert!(!console_capture_enabled_from(Some("off")));
+        assert!(!console_capture_enabled_from(Some("1")));
+        assert!(!console_capture_enabled_from(Some("true")));
     }
 }
 

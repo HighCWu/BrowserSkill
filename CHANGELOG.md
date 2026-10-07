@@ -9,6 +9,13 @@ Starting from 0.2.0, CLI / Extension / DSH Plugin share the same version number.
 
 ### Added
 
+- CDP console capture is now opt-in via the daemon environment variable
+  `BSK_CONSOLE_CAPTURE`. Unset (the default) keeps it off: attaching to a tab
+  never sends `Runtime.enable` / `Log.enable`, which anti-bot stacks treat as a
+  strong automation signal; `bsk console` then reports no buffered entries
+  instead of failing. Set `BSK_CONSOLE_CAPTURE=on` and reconnect the browser to
+  restore buffered console capture. The daemon advertises the choice to the
+  extension in its handshake response (`console_capture`).
 - `hover` accepts explicit viewport coordinates: `bsk hover --x <X> --y <Y>` (and
   the `tool.hover` wire fields `x`/`y`) move the mouse to an absolute point in CSS
   pixels without resolving an element, for pointer-trajectory scripting. The
