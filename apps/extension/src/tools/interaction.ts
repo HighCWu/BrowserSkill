@@ -52,6 +52,15 @@ import {
   resolveTargetTab,
 } from "./shared";
 import { resolveSnapshotRef } from "./snapshot-ref";
+import {
+  adaptiveDurationMs,
+  defaultSteps,
+  dispatchTrajectory,
+  distance,
+  glideStart,
+  planTrajectory,
+  randomOvershoot,
+} from "./trajectory";
 
 export interface InteractionDeps extends ClickOverlayDeps {
   /** Arm short popup observation immediately before native input dispatch. */
@@ -115,6 +124,39 @@ function throwIfAborted(signal: AbortSignal | undefined): RpcError | null {
     return { code: "cancelled", message: "interaction aborted" };
   }
   return null;
+}
+
+/**
+ * Glide the pointer to `point` along a humanised trajectory instead of
+ * snapping there in one event. Starts from the tab's last dispatched
+ * pointer position (or the viewport centre) and records every
+ * dispatched position so consecutive moves read as one continuous hand.
+ */
+async function glideToPoint(
+  cdp: CdpRunner,
+  tabId: number,
+  point: { x: number; y: number },
+  signal: AbortSignal | undefined,
+  modifiers: number,
+): Promise<void> {
+  const start = await glideStart(cdp, tabId);
+  if (!start) throw new Error("Page.getLayoutMetrics returned no viewport size");
+  const durationMs = adaptiveDurationMs(distance(start, point));
+  const points = planTrajectory({
+    from: start,
+    to: point,
+    durationMs,
+    steps: defaultSteps(durationMs),
+    curve: "bezier",
+    overshoot: randomOvershoot(),
+    jitter: true,
+    rng: Math.random,
+  });
+  await dispatchTrajectory(cdp, tabId, points, {
+    signal,
+    modifiers,
+    remember: (p) => cdp.rememberMousePos?.(tabId, p.x, p.y),
+  });
 }
 
 function isAbortLikeError(err: unknown): boolean {
@@ -463,6 +505,12 @@ export async function handleClick(
   if (isRpcError(target)) return target;
   const denied = enforceAgentWindow(ctx, target, "click");
   if (denied) return denied;
+  if (params.glide && isVisualPointRequest(params)) {
+    return {
+      code: "invalid_params",
+      message: "click glide cannot be combined with a visual capture",
+    };
+  }
   if (isVisualPointRequest(params)) {
     const consumed = consumeVisualCapture(ctx.refStore, target.tabId, params);
     if (isRpcError(consumed)) return consumed;
@@ -480,7 +528,7 @@ export async function handleClick(
 export async function clickResolvedTarget(
   ctx: SessionContext,
   resolved: ResolvedActionTarget,
-  params: Pick<ClickParams, "button" | "click_count" | "modifiers">,
+  params: Pick<ClickParams, "button" | "click_count" | "modifiers" | "glide">,
   deps: InteractionDeps,
   markSent?: () => void,
 ): Promise<ClickResult | RpcError> {
@@ -531,7 +579,7 @@ export async function clickResolvedTarget(
 async function dispatchClickAtPoint(
   tabId: number,
   point: { x: number; y: number },
-  params: Pick<ClickParams, "button" | "click_count" | "modifiers">,
+  params: Pick<ClickParams, "button" | "click_count" | "modifiers" | "glide">,
   deps: InteractionDeps,
   verifyOverlay: () => Promise<RpcError | null>,
   beforePress?: () => Promise<RpcError | null>,
@@ -565,11 +613,17 @@ async function dispatchClickAtPoint(
   try {
     if (deps.signal?.aborted) return failure({ code: "cancelled", message: "click aborted" });
     moved = true;
+    // Optional humanised approach: glide from the last pointer position
+    // to the click point, then confirm the destination in one final move.
+    if (params.glide) {
+      await glideToPoint(deps.cdp, tabId, point, deps.signal, modifiers);
+    }
     await deps.cdp.send(tabId, "Input.dispatchMouseEvent", {
       type: "mouseMoved",
       ...point,
       modifiers,
     });
+    deps.cdp.rememberMousePos?.(tabId, point.x, point.y);
     if (beforePress) {
       const error = await beforePress();
       if (error) return failure(error);
@@ -770,12 +824,19 @@ export async function handleHover(
   }
 
   try {
-    await deps.cdp.send(target.tabId, "Input.dispatchMouseEvent", {
-      type: "mouseMoved",
-      x: centre.x,
-      y: centre.y,
-      modifiers,
-    });
+    if (params.glide) {
+      await glideToPoint(deps.cdp, target.tabId, centre, deps.signal, modifiers);
+    } else {
+      await deps.cdp.send(target.tabId, "Input.dispatchMouseEvent", {
+        type: "mouseMoved",
+        x: centre.x,
+        y: centre.y,
+        modifiers,
+      });
+    }
+    // Track the pointer so a later glide starts from where the mouse
+    // actually is (both coordinate and element-centroid paths).
+    deps.cdp.rememberMousePos?.(target.tabId, centre.x, centre.y);
     const settleMs = params.settle_ms ?? DEFAULT_HOVER_SETTLE_MS;
     if (settleMs > 0) {
       await wait(settleMs, deps.signal);
@@ -823,9 +884,10 @@ function explicitHoverPointParamsError(params: HoverParams): RpcError | null {
 /**
  * Validate explicit hover coordinates against the top-level layout
  * viewport so an out-of-range point fails with a clear error instead of
- * silently moving the mouse outside the window.
+ * silently moving the mouse outside the window. Shared with
+ * `tool.mouse_move`, which validates its endpoints the same way.
  */
-async function hoverPointInViewport(
+export async function hoverPointInViewport(
   cdp: CdpRunner,
   tabId: number,
   x: number,
@@ -918,7 +980,7 @@ export function inspectOverlayHitAtPoint(x: number, y: number): OverlayHitInspec
  * Returns true when the control overlay has a visible layer with
  * pointer-events blocking the click point.
  */
-async function checkOverlayAtPoint(
+export async function checkOverlayAtPoint(
   cdp: CdpRunner,
   tabId: number,
   x: number,

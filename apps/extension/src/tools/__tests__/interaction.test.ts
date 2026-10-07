@@ -1344,6 +1344,113 @@ describe("handleHover", () => {
   });
 });
 
+describe("interaction glide", () => {
+  it("hover with glide dispatches a trajectory ending on the target", async () => {
+    const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
+    await sm.start("aa11");
+    const fake = makeFakeCdp({
+      "Input.dispatchMouseEvent": () => ({}),
+    });
+
+    const res = await handleHover(
+      sm,
+      { session_id: "aa11", x: 500, y: 300, settle_ms: 0, glide: true },
+      { cdp: fake.cdp, tabsApi: fake.tabsApi },
+    );
+
+    if ("code" in res) throw new Error(`unexpected error: ${JSON.stringify(res)}`);
+    expect(res).toMatchObject({ tab_id: 4, x: 500, y: 300 });
+    const path = fake.sent
+      .filter((c) => c.method === "Input.dispatchMouseEvent")
+      .map((c) => c.params as { type: string; x: number; y: number })
+      .filter((p) => p.type === "mouseMoved");
+    expect(path.length).toBeGreaterThan(1);
+    expect(path[path.length - 1]).toMatchObject({ x: 500, y: 300 });
+    // The eased trajectory starts at the viewport centre fallback
+    // (intermediate points carry ±0.5 px jitter).
+    expect(Math.abs(path[0].x - 640)).toBeLessThanOrEqual(0.5);
+    expect(Math.abs(path[0].y - 360)).toBeLessThanOrEqual(0.5);
+  });
+
+  it("hover without glide still records the pointer position", async () => {
+    const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
+    await sm.start("aa11");
+    const remembered: Array<{ tabId: number; x: number; y: number }> = [];
+    const fake = makeFakeCdp({
+      "Input.dispatchMouseEvent": () => ({}),
+    });
+    const cdp = {
+      ...fake.cdp,
+      rememberMousePos: (tabId: number, x: number, y: number) => {
+        remembered.push({ tabId, x, y });
+      },
+    };
+
+    const res = await handleHover(
+      sm,
+      { session_id: "aa11", x: 500, y: 300, settle_ms: 0 },
+      { cdp, tabsApi: fake.tabsApi },
+    );
+
+    if ("code" in res) throw new Error(`unexpected error: ${JSON.stringify(res)}`);
+    const moved = fake.sent.filter((c) => c.method === "Input.dispatchMouseEvent");
+    expect(moved).toHaveLength(1);
+    expect(remembered).toEqual([{ tabId: 4, x: 500, y: 300 }]);
+  });
+
+  it("click with glide glides before pressing at the destination", async () => {
+    const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
+    const ctx = await sm.start("aa11");
+    ctx.refStore.set("e3", 1234, { tabId: 4 });
+    const fake = makeFakeCdp({
+      "DOM.scrollIntoViewIfNeeded": () => ({}),
+      "DOM.getContentQuads": () => ({ quads: [[10, 20, 110, 20, 110, 60, 10, 60]] }),
+      "Input.dispatchMouseEvent": () => ({}),
+    });
+
+    const res = await handleClick(
+      sm,
+      { session_id: "aa11", ref: "@e3", glide: true },
+      { cdp: fake.cdp, tabsApi: fake.tabsApi },
+    );
+
+    if ("code" in res) throw new Error(`unexpected error: ${JSON.stringify(res)}`);
+    expect(res).toMatchObject({ tab_id: 4, used_ref: "e3", x: 60, y: 40 });
+    const events = fake.sent
+      .filter((c) => c.method === "Input.dispatchMouseEvent")
+      .map((c) => c.params as { type: string; x: number; y: number });
+    const presses = events.filter((e) => e.type === "mousePressed");
+    expect(presses).toHaveLength(1);
+    const path = events.filter((e) => e.type === "mouseMoved");
+    // Glided approach plus the final confirming move before the press.
+    expect(path.length).toBeGreaterThan(2);
+    for (const point of path.slice(-2)) {
+      expect(point).toMatchObject({ x: 60, y: 40 });
+    }
+  });
+
+  it("click rejects glide combined with a visual capture", async () => {
+    const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
+    await sm.start("aa11");
+    const fake = makeFakeCdp({});
+
+    const res = await handleClick(
+      sm,
+      {
+        session_id: "aa11",
+        capture_id: "cap-1",
+        image_x: 10,
+        image_y: 10,
+        glide: true,
+      },
+      { cdp: fake.cdp, tabsApi: fake.tabsApi },
+    );
+
+    expect(res).toMatchObject({ code: "invalid_params", message: /glide cannot be combined/ });
+    expect(fake.sent).toHaveLength(0);
+  });
+});
+
 describe("handleFocus and handleBlur", () => {
   it("focuses a ref and verifies the deep active element", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
