@@ -532,6 +532,9 @@ export interface HoverParams {
   session_id: string;
   ref?: string;
   selector?: string;
+  /** Viewport-relative coordinates (CSS pixels); both together skip element resolution. */
+  x?: number;
+  y?: number;
   tab_id?: number;
   modifiers?: KeyModifier[];
   settle_ms?: number;

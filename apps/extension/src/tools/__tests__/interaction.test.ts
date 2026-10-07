@@ -1274,6 +1274,74 @@ describe("handleHover", () => {
     expect(bypassOverlay).toHaveBeenCalledTimes(1);
     expect(bypassOverlay).toHaveBeenCalledWith(4, true);
   });
+
+  it("moves to explicit viewport coordinates without resolving an element", async () => {
+    const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
+    await sm.start("aa11");
+    const fake = makeFakeCdp({
+      "Input.dispatchMouseEvent": () => ({}),
+    });
+
+    const res = await handleHover(
+      sm,
+      { session_id: "aa11", x: 500, y: 300, settle_ms: 0 },
+      { cdp: fake.cdp, tabsApi: fake.tabsApi },
+    );
+
+    if ("code" in res) throw new Error(`unexpected error: ${JSON.stringify(res)}`);
+    expect(res).toMatchObject({ tab_id: 4, x: 500, y: 300 });
+    expect(res.used_ref).toBeUndefined();
+    expect(res.used_selector).toBeUndefined();
+    const methods = fake.sent.map((call) => call.method);
+    expect(methods.some((m) => m.startsWith("DOM."))).toBe(false);
+    const move = fake.sent.find((call) => call.method === "Input.dispatchMouseEvent");
+    expect(move?.params).toMatchObject({ type: "mouseMoved", x: 500, y: 300 });
+  });
+
+  it("rejects explicit coordinates outside the viewport", async () => {
+    const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
+    await sm.start("aa11");
+    const fake = makeFakeCdp({});
+
+    const res = await handleHover(
+      sm,
+      { session_id: "aa11", x: 1300, y: 300, settle_ms: 0 },
+      { cdp: fake.cdp, tabsApi: fake.tabsApi },
+    );
+
+    expect(res).toMatchObject({
+      code: "invalid_params",
+      message: /outside the 1280x720 viewport/,
+    });
+    expect(fake.sent.some((call) => call.method === "Input.dispatchMouseEvent")).toBe(false);
+  });
+
+  it("rejects partial or conflicting explicit coordinates", async () => {
+    const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
+    await sm.start("aa11");
+    const fake = makeFakeCdp({});
+
+    const partial = await handleHover(
+      sm,
+      { session_id: "aa11", x: 500, settle_ms: 0 },
+      { cdp: fake.cdp, tabsApi: fake.tabsApi },
+    );
+    expect(partial).toMatchObject({
+      code: "invalid_params",
+      message: /provided together/,
+    });
+
+    const combined = await handleHover(
+      sm,
+      { session_id: "aa11", x: 500, y: 300, ref: "@e3", settle_ms: 0 },
+      { cdp: fake.cdp, tabsApi: fake.tabsApi },
+    );
+    expect(combined).toMatchObject({
+      code: "invalid_params",
+      message: /cannot be combined/,
+    });
+    expect(fake.sent.some((call) => call.method === "Input.dispatchMouseEvent")).toBe(false);
+  });
 });
 
 describe("handleFocus and handleBlur", () => {

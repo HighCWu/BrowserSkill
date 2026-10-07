@@ -38,7 +38,7 @@ import type {
 import { type ClickOverlayDeps, withClickOverlay } from "./click-overlay";
 import { attachDialogs, markDialogCursor } from "./dialogs";
 import { backendNodeToObject } from "./element-geometry";
-import { rpcError } from "./errors";
+import { cdpError, rpcError } from "./errors";
 import { resolveNodeGeometry, scrollElementAndFramesIntoView } from "./frame-geometry";
 import {
   type CdpRunner,
@@ -715,22 +715,42 @@ export async function handleHover(
   if (denied) return denied;
   const dialogCursor = markDialogCursor(deps.cdp, target.tabId);
 
-  const node = await resolveBackendNode(deps.cdp, ctx, target, params, "hover");
-  if (isRpcError(node)) return node;
+  // Explicit viewport coordinates move the mouse without resolving an
+  // element; otherwise fall back to the ref/selector path.
+  const pointX = params.x;
+  const pointY = params.y;
+  let centre: { x: number; y: number };
+  let usedRef: string | undefined;
+  let usedSelector: string | undefined;
+  if (pointX !== undefined && pointY !== undefined) {
+    const invalid = explicitHoverPointParamsError(params);
+    if (invalid) return invalid;
+    const point = await hoverPointInViewport(deps.cdp, target.tabId, pointX, pointY);
+    if (isRpcError(point)) return point;
+    centre = point;
+    deps.cdp.trackSessionTab?.(ctx.sessionId, target.tabId);
+  } else if (pointX !== undefined || pointY !== undefined) {
+    return { code: "invalid_params", message: "hover x and y must be provided together" };
+  } else {
+    const node = await resolveBackendNode(deps.cdp, ctx, target, params, "hover");
+    if (isRpcError(node)) return node;
 
-  deps.cdp.trackSessionTab?.(ctx.sessionId, target.tabId);
-  const geometry = await resolveNodeGeometry(
-    deps.cdp,
-    target.tabId,
-    {
-      target: node.cdpTarget,
-      backendNodeId: node.backendNodeId,
-      ...(node.frameId ? { frameId: node.frameId } : {}),
-    },
-    { scrollIntoView: true },
-  );
-  if (isRpcError(geometry)) return geometry;
-  const centre = geometry.actionPoint;
+    deps.cdp.trackSessionTab?.(ctx.sessionId, target.tabId);
+    const geometry = await resolveNodeGeometry(
+      deps.cdp,
+      target.tabId,
+      {
+        target: node.cdpTarget,
+        backendNodeId: node.backendNodeId,
+        ...(node.frameId ? { frameId: node.frameId } : {}),
+      },
+      { scrollIntoView: true },
+    );
+    if (isRpcError(geometry)) return geometry;
+    centre = geometry.actionPoint;
+    usedRef = node.usedRef;
+    usedSelector = node.usedSelector;
+  }
 
   if (throwIfAborted(deps.signal)) {
     return { code: "cancelled", message: "hover aborted" };
@@ -785,11 +805,64 @@ export async function handleHover(
 
   return attachDialogs(deps.cdp, target.tabId, dialogCursor, {
     tab_id: target.tabId,
-    used_ref: node.usedRef,
-    used_selector: node.usedSelector,
+    used_ref: usedRef,
+    used_selector: usedSelector,
     x: centre.x,
     y: centre.y,
   });
+}
+
+/** Reject invalid explicit-coordinate hover requests before any CDP work. */
+function explicitHoverPointParamsError(params: HoverParams): RpcError | null {
+  if (params.ref !== undefined || params.selector !== undefined) {
+    return { code: "invalid_params", message: "hover x/y cannot be combined with ref/selector" };
+  }
+  return null;
+}
+
+/**
+ * Validate explicit hover coordinates against the top-level layout
+ * viewport so an out-of-range point fails with a clear error instead of
+ * silently moving the mouse outside the window.
+ */
+async function hoverPointInViewport(
+  cdp: CdpRunner,
+  tabId: number,
+  x: number,
+  y: number,
+): Promise<{ x: number; y: number } | RpcError> {
+  if (!Number.isFinite(x) || !Number.isFinite(y)) {
+    return { code: "invalid_params", message: "hover x and y must be finite numbers" };
+  }
+  let metrics: {
+    cssLayoutViewport?: { clientWidth?: number; clientHeight?: number };
+    layoutViewport?: { clientWidth?: number; clientHeight?: number };
+  };
+  try {
+    metrics = await cdp.send(tabId, "Page.getLayoutMetrics", {});
+  } catch (err) {
+    return cdpError(err);
+  }
+  const viewport = metrics.cssLayoutViewport ?? metrics.layoutViewport ?? {};
+  const width = viewport.clientWidth;
+  const height = viewport.clientHeight;
+  if (
+    typeof width !== "number" ||
+    typeof height !== "number" ||
+    !Number.isFinite(width) ||
+    !Number.isFinite(height) ||
+    width <= 0 ||
+    height <= 0
+  ) {
+    return { code: "cdp_failed", message: "Page.getLayoutMetrics returned no viewport size" };
+  }
+  if (x < 0 || x >= width || y < 0 || y >= height) {
+    return {
+      code: "invalid_params",
+      message: `hover point (${x}, ${y}) is outside the ${width}x${height} viewport`,
+    };
+  }
+  return { x, y };
 }
 
 interface OverlayHitInspection {
