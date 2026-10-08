@@ -21,6 +21,16 @@ Starting from 0.2.0, CLI / Extension / DSH Plugin share the same version number.
   agent-controlled, and cleared by a matching `tab_return`. In-place borrows
   rely on this: their tab never enters the Agent Window, so the previous
   window-based fallback could never target it.
+- Coordinate clicks: `click` accepts `--x`/`--y` (viewport CSS pixels,
+  both together) like `hover` — the press dispatches at that point without
+  resolving an element. A glided approach lands exactly on the requested
+  point (landing scatter needs an element box). Enables progress-bar and
+  player-surface interactions that have no clean element target.
+- Fill synthetic-event hardening: after `Input.insertText`, fill probes
+  whether the page already reacted to the trusted `input` event that
+  insertText delivers, and only pages that stayed silent receive the
+  synthetic `input`/`change` fallback. `isTrusted: false` events are an
+  automation fingerprint real user streams never contain.
 
 ### Fixed
 
