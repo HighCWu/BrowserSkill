@@ -7,6 +7,15 @@ Starting from 0.2.0, CLI / Extension / DSH Plugin share the same version number.
 
 ## [Unreleased]
 
+### Added
+
+- In-place borrow mode: `bsk tab borrow <TAB_ID> --in-place` attaches a user
+  tab where it lives — no move into the Agent Window, no confirmation prompt
+  (the CLI invocation is the authorization, matching the Codex/Claude-in-
+  Chrome model). The tab is activated in its own window, Agent Window scope
+  checks exempt it, the visual-cursor overlay follows it, and `tab return` /
+  session stop only detach. Legacy borrows are unchanged.
+
 ### Fixed
 
 - Click `--glide` now passes the visual-cursor notifier into the shared glide
