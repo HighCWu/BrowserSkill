@@ -197,3 +197,62 @@ describe("remote tab ownership", () => {
     });
   });
 });
+
+describe("default target pin", () => {
+  function fakeTabs(tabs: chrome.tabs.Tab[]) {
+    return {
+      get: vi.fn(async (id: number) => {
+        const tab = tabs.find((t) => t.id === id);
+        if (!tab) throw new Error(`No tab with id: ${id}.`);
+        return tab;
+      }),
+      query: vi.fn(async () => tabs.filter((t) => t.windowId === 100 && t.active === true)),
+    };
+  }
+
+  it("prefers the pinned borrow tab over the Agent Window's active tab", async () => {
+    const manager = new SessionManager({ agentWindow: fakeAgentWindow() });
+    const context = await manager.start("aa11");
+    const borrowed = { id: 7, windowId: 200, index: 4, active: true } as chrome.tabs.Tab;
+    const home = { id: 9, windowId: 100, index: 0, active: true } as chrome.tabs.Tab;
+    const tabs = fakeTabs([borrowed, home]);
+    context.borrowedTabs.set(7, {
+      tabId: 7,
+      originalWindowId: 200,
+      originalIndex: 4,
+      inPlace: true,
+    });
+    context.defaultTabId = 7;
+    expect(await resolveTargetTab(manager, context, undefined, tabs)).toMatchObject({
+      tabId: 7,
+      windowId: 200,
+    });
+  });
+
+  it("self-heals the pin when the pinned tab is gone", async () => {
+    const manager = new SessionManager({ agentWindow: fakeAgentWindow() });
+    const context = await manager.start("aa11");
+    const home = { id: 9, windowId: 100, index: 0, active: true } as chrome.tabs.Tab;
+    const tabs = fakeTabs([home]);
+    context.defaultTabId = 7;
+    expect(await resolveTargetTab(manager, context, undefined, tabs)).toMatchObject({
+      tabId: 9,
+      windowId: 100,
+    });
+    expect(context.defaultTabId).toBeUndefined();
+  });
+
+  it("self-heals the pin when the pinned tab is no longer agent-controlled", async () => {
+    const manager = new SessionManager({ agentWindow: fakeAgentWindow() });
+    const context = await manager.start("aa11");
+    const stray = { id: 7, windowId: 200, index: 1, active: true } as chrome.tabs.Tab;
+    const home = { id: 9, windowId: 100, index: 0, active: true } as chrome.tabs.Tab;
+    const tabs = fakeTabs([stray, home]);
+    context.defaultTabId = 7; // no borrowedTabs entry: the claim was released elsewhere
+    expect(await resolveTargetTab(manager, context, undefined, tabs)).toMatchObject({
+      tabId: 9,
+      windowId: 100,
+    });
+    expect(context.defaultTabId).toBeUndefined();
+  });
+});

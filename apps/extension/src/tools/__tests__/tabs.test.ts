@@ -518,9 +518,9 @@ describe("handleTabBorrow", () => {
     // Agent Window scope does not apply to in-place borrows...
     expect(enforceAgentWindow(sm.get("aa11")!, { tabId: 7, windowId: 200 }, "click")).toBeNull();
     // ...but unclaimed user tabs stay outside it.
-    expect(
-      enforceAgentWindow(sm.get("aa11")!, { tabId: 8, windowId: 200 }, "click"),
-    ).toMatchObject({ code: "permission_denied" });
+    expect(enforceAgentWindow(sm.get("aa11")!, { tabId: 8, windowId: 200 }, "click")).toMatchObject(
+      { code: "permission_denied" },
+    );
   });
 
   it("in-place return detaches without moving the tab", async () => {
@@ -545,6 +545,34 @@ describe("handleTabBorrow", () => {
     expect(state.tabs.get(7)).toMatchObject({ windowId: 200, index: 4 });
   });
 
+  it("borrow and select pin the default target; return clears the matching pin", async () => {
+    const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
+    await sm.start("aa11");
+    const state: FakeTabState = {
+      tabs: new Map([
+        [7, { id: 7, windowId: 200, index: 4 } as chrome.tabs.Tab],
+        [9, { id: 9, windowId: 100, index: 0 } as chrome.tabs.Tab],
+      ]),
+      nextTabId: 50,
+      windowsClosed: new Set(),
+    };
+    const { api } = makeTabMutationApi(state);
+    const deps = { tabs: api, approveBorrow: async () => true };
+    await handleTabBorrow(sm, { session_id: "aa11", tab_id: 7, in_place: true }, deps);
+    expect(sm.get("aa11")!.defaultTabId).toBe(7);
+
+    await handleTabReturn(sm, { session_id: "aa11", tab_id: 7 }, { tabs: api });
+    expect(sm.get("aa11")!.defaultTabId).toBeUndefined();
+
+    await handleTabBorrow(sm, { session_id: "aa11", tab_id: 7, in_place: true }, deps);
+    expect(sm.get("aa11")!.defaultTabId).toBe(7);
+    await handleTabSelect(sm, { session_id: "aa11", tab_id: 9 }, { tabs: api });
+    expect(sm.get("aa11")!.defaultTabId).toBe(9);
+    // Returning a borrow other than the pinned tab keeps the pin.
+    await handleTabReturn(sm, { session_id: "aa11", tab_id: 7 }, { tabs: api });
+    expect(sm.get("aa11")!.defaultTabId).toBe(9);
+  });
+
   it("re-borrowing an in-place tab is idempotent and re-activates it", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
     await sm.start("aa11");
@@ -557,9 +585,10 @@ describe("handleTabBorrow", () => {
     const borrowArgs = { session_id: "aa11", tab_id: 7, in_place: true } as const;
     const deps = { tabs: api, approveBorrow: async () => true };
     await handleTabBorrow(sm, borrowArgs, deps);
-    expect(
-      await handleTabBorrow(sm, borrowArgs, deps),
-    ).toMatchObject({ in_place: true, original_window_id: 200 });
+    expect(await handleTabBorrow(sm, borrowArgs, deps)).toMatchObject({
+      in_place: true,
+      original_window_id: 200,
+    });
     expect(spies.move).not.toHaveBeenCalled();
     expect(spies.update).toHaveBeenCalledTimes(2);
   });

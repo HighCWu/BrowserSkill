@@ -260,6 +260,33 @@ async function resolveVisibleTargetTab(
       pendingUrl: tab.pendingUrl,
     };
   }
+  // Borrow/selected-tab pin: an in-place borrowed page never enters the
+  // Agent Window, so window-based resolution cannot find it. Self-heal by
+  // dropping the pin when the tab is gone or no longer ours.
+  if (ctx.defaultTabId !== undefined) {
+    try {
+      const pinned = await api.get(ctx.defaultTabId);
+      if (
+        typeof pinned.id === "number" &&
+        typeof pinned.windowId === "number" &&
+        isAgentControlledTab(ctx, pinned.id)
+      ) {
+        const owner = manager.findByWindowId(pinned.windowId);
+        if (!owner || owner.sessionId === ctx.sessionId) {
+          return {
+            tabId: pinned.id,
+            windowId: pinned.windowId,
+            active: pinned.active === true,
+            url: pinned.url,
+            pendingUrl: pinned.pendingUrl,
+          };
+        }
+      }
+    } catch {
+      /* fall through to Agent Window resolution */
+    }
+    delete ctx.defaultTabId;
+  }
   const tabs = await api.query({ active: true, windowId: ctx.agentWindowId });
   const first = tabs.find((t) => typeof t.id === "number");
   if (!first || typeof first.id !== "number") {

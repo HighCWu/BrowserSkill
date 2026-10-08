@@ -16,6 +16,13 @@ export interface SessionContext {
   agentCreatedTabs: Set<number>;
   /** Observed same-window popups: controllable, but preserved by session stop. */
   observedTabs?: Set<number>;
+  /**
+   * Tab that commands without an explicit `tab_id` target. Set by
+   * `tab_borrow` (both modes) and `tab_select`, cleared by `tab_return`.
+   * In-place borrows need this: their tab never enters the Agent Window,
+   * so the window-based fallback cannot find it.
+   */
+  defaultTabId?: number;
   createdAtMs: number;
 }
 

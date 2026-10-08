@@ -645,6 +645,7 @@ export async function handleTabSelect(
       message: err instanceof Error ? err.message : String(err),
     };
   }
+  ctx.defaultTabId = params.tab_id;
   // windowId stable across `update({active:true})`; reuse what
   // authoriseAgentTab already loaded so we don't issue a second `get`.
   const windowId = typeof tabOrErr.windowId === "number" ? tabOrErr.windowId : ctx.agentWindowId;
@@ -900,6 +901,7 @@ export async function handleTabBorrow(
             /* The claim stands; activation is best-effort. */
           }
         }
+        ctx.defaultTabId = params.tab_id;
         return result;
       }
     } catch {
@@ -945,6 +947,7 @@ export async function handleTabBorrow(
         inPlace: true,
       });
       committed = true;
+      ctx.defaultTabId = params.tab_id;
     } else {
       const approve: BorrowConfirmationApprover =
         deps.approveBorrow ??
@@ -974,6 +977,7 @@ export async function handleTabBorrow(
           originalIndex,
         });
         committed = true;
+        ctx.defaultTabId = params.tab_id;
       } catch (err) {
         try {
           await tabsApi.move(params.tab_id, {
@@ -1172,7 +1176,11 @@ export async function returnBorrowedTab(
   tabId: number,
   deps: TabManagementDeps,
 ): Promise<ReturnOutcome | RpcError> {
-  return withUiTeardown(ctx, tabId, () => returnBorrowedTabCore(ctx, tabId, deps));
+  return withUiTeardown(ctx, tabId, async () => {
+    const result = await returnBorrowedTabCore(ctx, tabId, deps);
+    if (!isRpcError(result) && ctx.defaultTabId === tabId) delete ctx.defaultTabId;
+    return result;
+  });
 }
 
 async function returnBorrowedTabCore(
