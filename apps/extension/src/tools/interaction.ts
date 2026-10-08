@@ -658,6 +658,7 @@ async function dispatchClickAtPoint(
       const landed = await glideToPoint(deps.cdp, tabId, point, deps.signal, modifiers, {
         dwell: true,
         box: targetBox ?? null,
+        cursor: deps.cursor,
       });
       if (landed.x !== point.x || landed.y !== point.y) {
         point = { x: landed.x, y: landed.y };

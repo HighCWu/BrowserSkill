@@ -41,7 +41,7 @@ const SETTLE_FALLBACK_MS = 220;
 /** How long the typing flash stays on. */
 const KEY_FLASH_MS = 140;
 /** Ring lifetime after a release finishes it off. */
-const RING_FADE_MS = 260;
+const RING_FADE_MS = 340;
 /** Scroll hint lifetime. */
 const WHEEL_HINT_MS = 480;
 const MOVE_EASING = "cubic-bezier(0.2, 0, 0, 1)";
@@ -72,7 +72,10 @@ const SHADOW_STYLES = `
   .pv-pointer > svg {
     position: absolute;
     inset: 0;
-    transition: opacity 60ms ease;
+    transition: opacity 60ms ease, transform 90ms cubic-bezier(0.2, 0, 0.2, 1);
+  }
+  .pv-pointer.pv-pressing > svg {
+    transform: scale(0.78);
   }
   .pv-pointer .pv-accent {
     opacity: 0;
@@ -84,27 +87,28 @@ const SHADOW_STYLES = `
   .pv-pointer.pv-pressing { transform-origin: 2px 2px; }
   .pv-ring {
     position: fixed;
-    width: 30px;
-    height: 30px;
-    margin: -15px 0 0 -15px;
-    border: 2px solid rgba(96, 150, 255, 0.9);
+    width: 42px;
+    height: 42px;
+    margin: -21px 0 0 -21px;
+    border: 3px solid rgba(79, 140, 255, 0.95);
     border-radius: 50%;
+    box-shadow: 0 0 14px 2px rgba(79, 140, 255, 0.35);
     z-index: ${CURSOR_LAYER_Z};
     pointer-events: none;
-    opacity: 0.9;
+    opacity: 1;
     transform: scale(0.3);
-    animation: pv-ring-grow 420ms ease-out forwards;
+    animation: pv-ring-grow 480ms ease-out forwards;
   }
   .pv-ring.pv-ring-done {
     animation: pv-ring-fade ${RING_FADE_MS}ms ease-out forwards;
   }
   @keyframes pv-ring-grow {
-    from { opacity: 0.9; transform: scale(0.3); }
-    to { opacity: 0.55; transform: scale(1.25); }
+    from { opacity: 1; transform: scale(0.3); }
+    to { opacity: 0.75; transform: scale(1.35); }
   }
   @keyframes pv-ring-fade {
-    from { opacity: 0.55; transform: scale(1.25); }
-    to { opacity: 0; transform: scale(1.7); }
+    from { opacity: 0.75; transform: scale(1.35); }
+    to { opacity: 0; transform: scale(1.8); }
   }
   .pv-wheel {
     position: fixed;

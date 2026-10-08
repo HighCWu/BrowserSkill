@@ -148,8 +148,8 @@ describe("cursor overlay controller", () => {
     );
     expect(pointer.classList.contains("pv-pressing")).toBe(false);
 
-    // The fade timer removes the finished ring.
-    vi.advanceTimersByTime(300);
+    // The fade timer removes the finished ring (fade budget: RING_FADE_MS).
+    vi.advanceTimersByTime(400);
     expect(shadow.querySelectorAll(".pv-ring").length).toBe(0);
   });
 
