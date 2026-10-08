@@ -15,6 +15,12 @@ Starting from 0.2.0, CLI / Extension / DSH Plugin share the same version number.
   Chrome model). The tab is activated in its own window, Agent Window scope
   checks exempt it, the visual-cursor overlay follows it, and `tab return` /
   session stop only detach. Legacy borrows are unchanged.
+- Default-target pin: sessions track `defaultTabId`, set by `tab_borrow`
+  (both modes) and `tab_select`, preferred when resolving commands without
+  an explicit `tab_id`, self-healed when the tab is gone or no longer
+  agent-controlled, and cleared by a matching `tab_return`. In-place borrows
+  rely on this: their tab never enters the Agent Window, so the previous
+  window-based fallback could never target it.
 
 ### Fixed
 
