@@ -7,6 +7,20 @@ Starting from 0.2.0, CLI / Extension / DSH Plugin share the same version number.
 
 ## [Unreleased]
 
+### Fixed
+
+- Click `--glide` now passes the visual-cursor notifier into the shared glide
+  helper (hover already did): the on-page indicator glides through every
+  trajectory point of a click approach instead of teleporting to the landing
+  point on press.
+- Ring-fade test budget follows `RING_FADE_MS`.
+
+### Changed
+
+- Press feedback is easier to see at a glance: the landing ring grows to 42px
+  with a soft glow and a 340 ms fade, and the pressed arrow squashes (the
+  transform-origin existed without a transform).
+
 ### Added
 
 - On-page visual pointer indicator so a human can follow the agent's input in
