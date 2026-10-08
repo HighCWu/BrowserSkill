@@ -15,6 +15,7 @@ import type {
 import type { CdpFrameGraph, CdpTarget } from "@/browser-driver/frame-graph";
 import {
   isAgentControlledTab,
+  isInPlaceBorrowedTab,
   type SessionContext,
   type SessionManager,
 } from "@/session-manager/manager";
@@ -394,6 +395,9 @@ export function enforceAgentWindow(
       message: "This tab has not been authorized for the remote task",
     };
   }
+  // In-place borrows are authorized by their CLI invocation and stay in the
+  // tab's own window; Agent Window scope does not apply to them.
+  if (isInPlaceBorrowedTab(ctx, target.tabId)) return null;
   if (target.windowId !== ctx.agentWindowId) {
     return rpcError(
       "permission_denied",

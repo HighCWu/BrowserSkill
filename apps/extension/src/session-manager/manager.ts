@@ -28,10 +28,21 @@ export function isAgentControlledTab(ctx: SessionContext, tabId: number): boolea
   );
 }
 
+/**
+ * Whether `tabId` is an in-place borrow: authorized by the CLI invocation,
+ * still living (and active) in its own window — exempt from Agent Window
+ * scope checks, and `tab_return` only detaches.
+ */
+export function isInPlaceBorrowedTab(ctx: SessionContext, tabId: number): boolean {
+  return ctx.borrowedTabs.get(tabId)?.inPlace === true;
+}
+
 export interface BorrowedTab {
   tabId: number;
   originalWindowId: number;
   originalIndex: number;
+  /** Set for in-place borrows: the tab never moved. */
+  inPlace?: boolean;
 }
 
 export interface BorrowReservation {

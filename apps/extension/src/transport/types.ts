@@ -334,6 +334,8 @@ export interface TabBorrowParams {
   session_id: string;
   tab_id: number;
   confirm?: boolean;
+  /** Attach the tab where it lives: no move, no confirmation prompt. */
+  in_place?: boolean;
 }
 
 export interface TabBorrowResult {
@@ -341,6 +343,8 @@ export interface TabBorrowResult {
   original_window_id: number;
   original_index: number;
   agent_window_id: number;
+  /** True when the tab was attached in place instead of moved. */
+  in_place?: boolean;
 }
 
 export interface TabReturnParams {
