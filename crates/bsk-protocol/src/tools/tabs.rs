@@ -145,6 +145,11 @@ pub struct TabBorrowParams {
     /// Legacy input, ignored. Browser settings decide whether confirmation is required.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub confirm: Option<bool>,
+    /// Attach the tab where it lives: no move into the Agent Window, no
+    /// confirmation prompt (the CLI invocation is the authorization), and
+    /// `tab_return` only detaches. The tab is activated in its own window.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub in_place: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -153,6 +158,12 @@ pub struct TabBorrowResult {
     pub original_window_id: i64,
     pub original_index: i32,
     pub agent_window_id: i64,
+    /// True when the tab was attached in place rather than moved into the
+    /// Agent Window; `original_window_id`/`original_index` then describe the
+    /// tab's own (unchanged) location. Absent on legacy moves so older CLI
+    /// peers parse the result unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub in_place: Option<bool>,
 }
 
 // ---------------------------------------------------------------------------
@@ -281,12 +292,22 @@ mod tests {
             original_window_id: 200,
             original_index: 4,
             agent_window_id: 100,
+            in_place: Some(true),
         };
         let v = serde_json::to_value(&r).unwrap();
         assert_eq!(v["original_window_id"], 200);
         assert_eq!(v["original_index"], 4);
+        assert_eq!(v["in_place"], true);
         let round: TabBorrowResult = serde_json::from_value(v).unwrap();
         assert_eq!(round, r);
+        // Legacy moves omit the flag entirely so older CLI peers parse
+        // the result unchanged.
+        let legacy = TabBorrowResult {
+            in_place: None,
+            ..r
+        };
+        let lv = serde_json::to_value(&legacy).unwrap();
+        assert!(lv.get("in_place").is_none());
     }
 
     #[test]

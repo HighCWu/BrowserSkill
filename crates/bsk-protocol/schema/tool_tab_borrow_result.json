@@ -13,6 +13,13 @@
       "type": "integer",
       "format": "int64"
     },
+    "in_place": {
+      "description": "True when the tab was attached in place rather than moved into the Agent Window; `original_window_id`/`original_index` then describe the tab's own (unchanged) location. Absent on legacy moves so older CLI peers parse the result unchanged.",
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
     "original_index": {
       "type": "integer",
       "format": "int32"
