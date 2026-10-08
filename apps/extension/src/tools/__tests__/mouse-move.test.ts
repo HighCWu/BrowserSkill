@@ -64,7 +64,7 @@ const QUICK = { duration_ms: 96, steps: 12, jitter: false } as const;
 describe("handleMouseMove", () => {
   it("uses the v2 behaviour state machine when every knob is default", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const fake = makeFakeCdp({ "Input.dispatchMouseEvent": () => ({}) });
 
     const res = await handleMouseMove(
@@ -93,7 +93,7 @@ describe("handleMouseMove", () => {
 
   it("glides from the viewport centre when nothing is tracked", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const fake = makeFakeCdp({ "Input.dispatchMouseEvent": () => ({}) });
 
     const res = await handleMouseMove(
@@ -128,7 +128,7 @@ describe("handleMouseMove", () => {
 
   it("starts from the remembered pointer position when present", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const fake = makeFakeCdp({ "Input.dispatchMouseEvent": () => ({}) }, { x: 100, y: 50 });
 
     const res = await handleMouseMove(
@@ -145,7 +145,7 @@ describe("handleMouseMove", () => {
 
   it("starts from explicit from_* coordinates when given", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const fake = makeFakeCdp({ "Input.dispatchMouseEvent": () => ({}) }, { x: 1, y: 2 });
 
     const res = await handleMouseMove(
@@ -170,7 +170,7 @@ describe("handleMouseMove", () => {
 
   it("keeps a linear no-jitter path exactly on the start–end segment", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const fake = makeFakeCdp({ "Input.dispatchMouseEvent": () => ({}) });
 
     const res = await handleMouseMove(
@@ -199,7 +199,7 @@ describe("handleMouseMove", () => {
 
   it("overshoots past the target and corrects back when requested", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const fake = makeFakeCdp({ "Input.dispatchMouseEvent": () => ({}) });
 
     const res = await handleMouseMove(
@@ -227,7 +227,7 @@ describe("handleMouseMove", () => {
 
   it("rejects an out-of-viewport destination before dispatching", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const fake = makeFakeCdp({});
 
     const res = await handleMouseMove(
@@ -245,7 +245,7 @@ describe("handleMouseMove", () => {
 
   it("rejects partial or non-finite from_* pairs", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const fake = makeFakeCdp({});
 
     const partial = await handleMouseMove(
@@ -266,7 +266,7 @@ describe("handleMouseMove", () => {
 
   it("validates duration and step bounds locally", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const fake = makeFakeCdp({});
 
     const badDuration = await handleMouseMove(
@@ -294,7 +294,7 @@ describe("handleMouseMove", () => {
 
   it("reports cancelled when the signal is already aborted", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const fake = makeFakeCdp({ "Input.dispatchMouseEvent": () => ({}) });
     const controller = new AbortController();
     controller.abort();

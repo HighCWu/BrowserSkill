@@ -86,7 +86,7 @@ describe.skipIf(!process.env.BSK_CLICK_CHROME)("download trigger retirement", ()
   ])("never resumes native input after cancellation at %s", async (heldType) => {
     await browser(async (_send, cdp) => {
       const sessions = manager();
-      const ctx = await sessions.start("download-retire");
+      const ctx = await sessions.startWithWindow("download-retire");
       await cdp.send(7, "Runtime.evaluate", {
         expression: `
         document.body.innerHTML = '<button id="export" style="width:200px;height:100px">Export</button>';
@@ -188,7 +188,7 @@ describe.skipIf(!process.env.BSK_CLICK_CHROME)("download trigger retirement", ()
   it("does not deliver a queued mouse move after cancellation during reattachment", async () => {
     await browser(async (_send, cdp, _sessionId, api) => {
       const sessions = manager();
-      const ctx = await sessions.start("download-reattach");
+      const ctx = await sessions.startWithWindow("download-reattach");
       await cdp.send(7, "Runtime.evaluate", {
         expression: `
           document.body.innerHTML = '<button id="export" style="width:200px;height:100px">Export</button>';

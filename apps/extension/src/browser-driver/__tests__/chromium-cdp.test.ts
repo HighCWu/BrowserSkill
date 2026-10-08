@@ -1553,7 +1553,7 @@ it("preserves a navigation wait budget when its frame-tree read takes more than 
       ensureActiveTab: async () => 4,
     },
   });
-  await sm.start("aa11");
+  await sm.startWithWindow("aa11");
   const { api } = fakeApi();
   vi.mocked(api.sendCommand).mockImplementation(async (_target, method) => {
     if (method === "Page.getFrameTree") {

@@ -342,7 +342,8 @@ export interface TabBorrowResult {
   tab_id: number;
   original_window_id: number;
   original_index: number;
-  agent_window_id: number;
+  /** Absent for in-place borrows: the session may never open an Agent Window. */
+  agent_window_id?: number;
   /** True when the tab was attached in place instead of moved. */
   in_place?: boolean;
 }

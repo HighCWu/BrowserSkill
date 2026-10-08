@@ -17,7 +17,7 @@ async function fixture(archive?: DebugArchive) {
       ensureActiveTab: async () => 7,
     },
   });
-  const context = await sessions.start("s1");
+  const context = await sessions.startWithWindow("s1");
   context.agentCreatedTabs.add(7);
   let now = 10_000;
   let listener: ((source: CdpDebuggee, method: string, params: unknown) => void) | undefined;
@@ -92,7 +92,7 @@ describe("task-scoped debug lifecycle", () => {
     const f = await fixture();
     active.push(f.manager);
     const owners = [f.context];
-    for (let i = 1; i < 5; i++) owners.push(await f.sessions.start(`s${i + 1}`));
+    for (let i = 1; i < 5; i++) owners.push(await f.sessions.startWithWindow(`s${i + 1}`));
     owners.forEach((owner, i) => owner.agentCreatedTabs.add(7 + i));
     f.tabs.get.mockImplementation(
       async (id) => ({ id, windowId: 100 + id - 7, url: "about:blank" }) as chrome.tabs.Tab,

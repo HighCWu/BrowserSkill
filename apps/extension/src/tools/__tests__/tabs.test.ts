@@ -41,7 +41,7 @@ function fakeChromeTabsApi(tabs: Partial<chrome.tabs.Tab>[]) {
 describe("handleTabList", () => {
   it("returns invalid_params for unknown scope values", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([10]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const res = await handleTabList(
       sm,
       { session_id: "aa11", scope: "private" } as unknown as Parameters<typeof handleTabList>[1],
@@ -52,7 +52,7 @@ describe("handleTabList", () => {
 
   it("default scope=all unions user and agent tabs when scope is omitted", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const tabs = fakeChromeTabsApi([
       { windowId: 100, url: "chrome://newtab/", title: "Agent New Tab", active: true },
       { windowId: 200, url: "https://example.com", title: "Example", active: true },
@@ -65,7 +65,7 @@ describe("handleTabList", () => {
 
   it("scope=user excludes the requesting session's Agent Window", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const tabs = fakeChromeTabsApi([
       { windowId: 100, url: "chrome://newtab/", title: "Agent New Tab", active: true },
       { windowId: 200, url: "https://example.com", title: "Example", active: true },
@@ -80,7 +80,7 @@ describe("handleTabList", () => {
 
   it("scope=agent returns only the requesting session's Agent Window tabs", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const tabs = fakeChromeTabsApi([
       { windowId: 100, url: "chrome://newtab/", title: "Agent" },
       { windowId: 200, url: "https://example.com" },
@@ -93,8 +93,8 @@ describe("handleTabList", () => {
 
   it("hides other sessions' Agent Window tabs from scope=all (cross-session isolation)", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100, 200]) });
-    await sm.start("aa11"); // agent window 100
-    await sm.start("bb22"); // agent window 200
+    await sm.startWithWindow("aa11"); // agent window 100
+    await sm.startWithWindow("bb22"); // agent window 200
     const tabs = fakeChromeTabsApi([
       { windowId: 100, url: "chrome://newtab/" }, // aa11's agent window
       { windowId: 200, url: "https://internal-tools/" }, // bb22's agent window — must be hidden from aa11
@@ -213,7 +213,7 @@ function makeWindowsApi(
 describe("handleTabCreate", () => {
   it("creates a tab inside the requesting session's Agent Window with the default URL", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const state: FakeTabState = { tabs: new Map(), nextTabId: 10, windowsClosed: new Set() };
     const { api, spies } = makeTabMutationApi(state);
     const res = await handleTabCreate(sm, { session_id: "aa11" }, { tabs: api });
@@ -229,7 +229,7 @@ describe("handleTabCreate", () => {
 
   it("forwards explicit url + index + active=false", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const state: FakeTabState = { tabs: new Map(), nextTabId: 10, windowsClosed: new Set() };
     const { api, spies } = makeTabMutationApi(state);
     const res = await handleTabCreate(
@@ -254,7 +254,7 @@ describe("handleTabCreate", () => {
 
   it("rejects negative index", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const state: FakeTabState = { tabs: new Map(), nextTabId: 10, windowsClosed: new Set() };
     const { api } = makeTabMutationApi(state);
     const res = await handleTabCreate(sm, { session_id: "aa11", index: -1 }, { tabs: api });
@@ -263,7 +263,7 @@ describe("handleTabCreate", () => {
 
   it("does not claim any tab when chrome.tabs.create fails", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const state: FakeTabState = { tabs: new Map(), nextTabId: 10, windowsClosed: new Set() };
     const { api, spies } = makeTabMutationApi(state);
     spies.create.mockRejectedValueOnce(new Error("chrome.tabs.create failed"));
@@ -276,7 +276,7 @@ describe("handleTabCreate", () => {
 
   it("claims the returned id even when a user tab appears during tab creation", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     const state: FakeTabState = { tabs: new Map(), nextTabId: 10, windowsClosed: new Set() };
     const { api, spies } = makeTabMutationApi(state);
     let resolveCreate!: (tab: chrome.tabs.Tab) => void;
@@ -300,7 +300,7 @@ describe("handleTabCreate", () => {
 describe("handleTabClose", () => {
   it("does not infer remote popup ownership from its opener and explains how to borrow it", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]), remote: () => true });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     const state: FakeTabState = {
       tabs: new Map([[5, { id: 5, windowId: 100, openerTabId: 1 } as chrome.tabs.Tab]]),
       nextTabId: 50,
@@ -327,7 +327,7 @@ describe("handleTabClose", () => {
   });
   it("removes a tab inside the Agent Window", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const state: FakeTabState = {
       tabs: new Map([[5, { id: 5, windowId: 100 } as chrome.tabs.Tab]]),
       nextTabId: 50,
@@ -342,7 +342,7 @@ describe("handleTabClose", () => {
 
   it("rejects closing a borrowed tab — caller must tab_return first", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.borrowedTabs.set(8, { tabId: 8, originalWindowId: 200, originalIndex: 3 });
     const state: FakeTabState = {
       tabs: new Map([[8, { id: 8, windowId: 100 } as chrome.tabs.Tab]]),
@@ -357,7 +357,7 @@ describe("handleTabClose", () => {
 
   it("refuses to close a tab outside the Agent Window with permission_denied", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const state: FakeTabState = {
       tabs: new Map([[9, { id: 9, windowId: 200 } as chrome.tabs.Tab]]),
       nextTabId: 50,
@@ -373,8 +373,8 @@ describe("handleTabClose", () => {
 
   it("rejects when another session has borrowed the tab", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100, 200]) });
-    await sm.start("aa11");
-    const ctxB = await sm.start("bb22");
+    await sm.startWithWindow("aa11");
+    const ctxB = await sm.startWithWindow("bb22");
     ctxB.borrowedTabs.set(7, { tabId: 7, originalWindowId: 300, originalIndex: 1 });
     const state: FakeTabState = {
       tabs: new Map([[7, { id: 7, windowId: 200 } as chrome.tabs.Tab]]),
@@ -390,7 +390,7 @@ describe("handleTabClose", () => {
 describe("handleTabSelect", () => {
   it("activates a tab inside the Agent Window", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const state: FakeTabState = {
       tabs: new Map([[3, { id: 3, windowId: 100 } as chrome.tabs.Tab]]),
       nextTabId: 50,
@@ -405,8 +405,8 @@ describe("handleTabSelect", () => {
 
   it("rejects activating a tab in a different session's Agent Window", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100, 200]) });
-    await sm.start("aa11");
-    await sm.start("bb22");
+    await sm.startWithWindow("aa11");
+    await sm.startWithWindow("bb22");
     const state: FakeTabState = {
       tabs: new Map([[3, { id: 3, windowId: 200 } as chrome.tabs.Tab]]),
       nextTabId: 50,
@@ -422,7 +422,7 @@ describe("handleTabSelect", () => {
 
   it("rejects a borrowed tab that is no longer in the Agent Window", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.borrowedTabs.set(3, { tabId: 3, originalWindowId: 200, originalIndex: 0 });
     const state: FakeTabState = {
       tabs: new Map([[3, { id: 3, windowId: 200 } as chrome.tabs.Tab]]),
@@ -441,7 +441,7 @@ describe("handleTabSelect", () => {
 describe("handleTabBorrow", () => {
   it("reports an unknown effect when cancellation rollback fails", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const state: FakeTabState = {
       tabs: new Map([[7, { id: 7, windowId: 200, index: 4 } as chrome.tabs.Tab]]),
       nextTabId: 50,
@@ -467,7 +467,7 @@ describe("handleTabBorrow", () => {
 
   it("returns a moved tab if its session ends before the borrow commits", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const state: FakeTabState = {
       tabs: new Map([[7, { id: 7, windowId: 200, index: 4 } as chrome.tabs.Tab]]),
       nextTabId: 50,
@@ -490,7 +490,7 @@ describe("handleTabBorrow", () => {
 
   it("in-place borrow attaches without moving and skips the approver", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const state: FakeTabState = {
       tabs: new Map([[7, { id: 7, windowId: 200, index: 4 } as chrome.tabs.Tab]]),
       nextTabId: 50,
@@ -525,7 +525,7 @@ describe("handleTabBorrow", () => {
 
   it("in-place return detaches without moving the tab", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const state: FakeTabState = {
       tabs: new Map([[7, { id: 7, windowId: 200, index: 4 } as chrome.tabs.Tab]]),
       nextTabId: 50,
@@ -547,7 +547,7 @@ describe("handleTabBorrow", () => {
 
   it("borrow and select pin the default target; return clears the matching pin", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const state: FakeTabState = {
       tabs: new Map([
         [7, { id: 7, windowId: 200, index: 4 } as chrome.tabs.Tab],
@@ -575,7 +575,7 @@ describe("handleTabBorrow", () => {
 
   it("re-borrowing an in-place tab is idempotent and re-activates it", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const state: FakeTabState = {
       tabs: new Map([[7, { id: 7, windowId: 200, index: 4 } as chrome.tabs.Tab]]),
       nextTabId: 50,
@@ -599,7 +599,7 @@ describe("handleTabBorrow", () => {
     true,
   ])("legacy confirm=%s cannot bypass the browser approver", async (confirm) => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     Object.assign(sm.get("aa11")!, { unattended: true });
     const state: FakeTabState = {
       tabs: new Map([[7, { id: 7, windowId: 200, index: 4 } as chrome.tabs.Tab]]),
@@ -628,7 +628,7 @@ describe("handleTabBorrow", () => {
 
   it("missing approval wiring never silently borrows a user tab", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const { api, spies } = makeTabMutationApi({
       tabs: new Map([[7, { id: 7, windowId: 200, index: 0 } as chrome.tabs.Tab]]),
       nextTabId: 50,
@@ -642,7 +642,7 @@ describe("handleTabBorrow", () => {
 
   it("returns an existing successful borrow without moving or asking again", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const state: FakeTabState = {
       tabs: new Map([[7, { id: 7, windowId: 200, index: 4 } as chrome.tabs.Tab]]),
       nextTabId: 50,
@@ -664,7 +664,7 @@ describe("handleTabBorrow", () => {
 
   it("does not create a second prompt while the same session is awaiting consent", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const state: FakeTabState = {
       tabs: new Map([[7, { id: 7, windowId: 200, index: 4 } as chrome.tabs.Tab]]),
       nextTabId: 50,
@@ -695,7 +695,7 @@ describe("handleTabBorrow", () => {
 
   it("ignores late consent after cancellation and releases the pending reservation", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const state: FakeTabState = {
       tabs: new Map([[7, { id: 7, windowId: 200, index: 4 } as chrome.tabs.Tab]]),
       nextTabId: 50,
@@ -732,7 +732,7 @@ describe("handleTabBorrow", () => {
 
   it("moves the tab into the Agent Window and records the original position", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     const state: FakeTabState = {
       tabs: new Map([[7, { id: 7, windowId: 200, index: 4 } as chrome.tabs.Tab]]),
       nextTabId: 50,
@@ -762,7 +762,7 @@ describe("handleTabBorrow", () => {
 
   it("refuses to borrow a tab already inside the Agent Window", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const state: FakeTabState = {
       tabs: new Map([[7, { id: 7, windowId: 100, index: 0 } as chrome.tabs.Tab]]),
       nextTabId: 50,
@@ -779,8 +779,8 @@ describe("handleTabBorrow", () => {
 
   it("refuses to borrow a tab already held by another session", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100, 200]) });
-    await sm.start("aa11");
-    const ctxB = await sm.start("bb22");
+    await sm.startWithWindow("aa11");
+    const ctxB = await sm.startWithWindow("bb22");
     ctxB.borrowedTabs.set(7, { tabId: 7, originalWindowId: 300, originalIndex: 1 });
     const state: FakeTabState = {
       tabs: new Map([[7, { id: 7, windowId: 200, index: 0 } as chrome.tabs.Tab]]),
@@ -798,8 +798,8 @@ describe("handleTabBorrow", () => {
 
   it("allows only one concurrent borrow of the same tab across sessions", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100, 200]) });
-    await sm.start("aa11");
-    await sm.start("bb22");
+    await sm.startWithWindow("aa11");
+    await sm.startWithWindow("bb22");
     const state: FakeTabState = {
       tabs: new Map([[7, { id: 7, windowId: 300, index: 1 } as chrome.tabs.Tab]]),
       nextTabId: 50,
@@ -828,8 +828,8 @@ describe("handleTabBorrow", () => {
 
   it("refuses to borrow a tab inside another session's Agent Window", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100, 200]) });
-    await sm.start("aa11");
-    await sm.start("bb22");
+    await sm.startWithWindow("aa11");
+    await sm.startWithWindow("bb22");
     const state: FakeTabState = {
       tabs: new Map([[7, { id: 7, windowId: 200, index: 0 } as chrome.tabs.Tab]]),
       nextTabId: 50,
@@ -849,7 +849,7 @@ describe("handleTabBorrow", () => {
 
   it("returns cancelled when the approver declines", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     const state: FakeTabState = {
       tabs: new Map([[7, { id: 7, windowId: 200, index: 0 } as chrome.tabs.Tab]]),
       nextTabId: 50,
@@ -868,7 +868,7 @@ describe("handleTabBorrow", () => {
 
   it("discards the legacy confirm input and treats approver errors as cancellation", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const state: FakeTabState = {
       tabs: new Map([[7, { id: 7, windowId: 200, index: 0 } as chrome.tabs.Tab]]),
       nextTabId: 50,
@@ -900,7 +900,7 @@ describe("handleTabReturn", () => {
     "cdp_failed",
   ])("detaches after selector resolution fails with %s", async (code) => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.borrowedTabs.set(7, { tabId: 7, originalWindowId: 200, originalIndex: 4 });
     const state: FakeTabState = {
       tabs: new Map([[7, { id: 7, windowId: 100 } as chrome.tabs.Tab]]),
@@ -955,7 +955,7 @@ describe("handleTabReturn", () => {
 
   it("honours cancellation while preparing a validated return", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.borrowedTabs.set(7, { tabId: 7, originalWindowId: 200, originalIndex: 4 });
     const state: FakeTabState = {
       tabs: new Map([[7, { id: 7, windowId: 100 } as chrome.tabs.Tab]]),
@@ -993,7 +993,7 @@ describe("handleTabReturn", () => {
     "cancelled",
   ])("releases CDP only after a successful return (%s)", async (mode) => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.borrowedTabs.set(7, { tabId: 7, originalWindowId: 200, originalIndex: 4 });
     const state: FakeTabState = {
       tabs: new Map([[7, { id: 7, windowId: 100 } as chrome.tabs.Tab]]),
@@ -1039,7 +1039,7 @@ describe("handleTabReturn", () => {
 
   it("returns the tab to its original window/index and clears borrowedTabs", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.borrowedTabs.set(7, { tabId: 7, originalWindowId: 200, originalIndex: 4 });
     const state: FakeTabState = {
       tabs: new Map([[7, { id: 7, windowId: 100, index: 999 } as chrome.tabs.Tab]]),
@@ -1063,7 +1063,7 @@ describe("handleTabReturn", () => {
 
   it("resets agent overlays in a returned tab after a successful tab_return", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.borrowedTabs.set(7, { tabId: 7, originalWindowId: 200, originalIndex: 4 });
     const state: FakeTabState = {
       tabs: new Map([[7, { id: 7, windowId: 100, index: 999 } as chrome.tabs.Tab]]),
@@ -1088,7 +1088,7 @@ describe("handleTabReturn", () => {
 
   it("falls back to the last focused normal window when the original is gone", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.borrowedTabs.set(7, { tabId: 7, originalWindowId: 200, originalIndex: 4 });
     const state: FakeTabState = {
       tabs: new Map([[7, { id: 7, windowId: 100 } as chrome.tabs.Tab]]),
@@ -1111,7 +1111,7 @@ describe("handleTabReturn", () => {
 
   it("creates a new window when no normal window remains", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.borrowedTabs.set(7, { tabId: 7, originalWindowId: 200, originalIndex: 4 });
     const state: FakeTabState = {
       tabs: new Map([[7, { id: 7, windowId: 100 } as chrome.tabs.Tab]]),
@@ -1136,7 +1136,7 @@ describe("handleTabReturn", () => {
 
   it("closes a newly created fallback window when cancellation wins before the move", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.borrowedTabs.set(7, { tabId: 7, originalWindowId: 200, originalIndex: 4 });
     const state: FakeTabState = {
       tabs: new Map([[7, { id: 7, windowId: 100 } as chrome.tabs.Tab]]),
@@ -1174,7 +1174,7 @@ describe("handleTabReturn", () => {
 
   it("surfaces the fallback window id when cancellation cleanup fails", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.borrowedTabs.set(7, { tabId: 7, originalWindowId: 200, originalIndex: 4 });
     const state: FakeTabState = {
       tabs: new Map([[7, { id: 7, windowId: 100 } as chrome.tabs.Tab]]),
@@ -1216,7 +1216,7 @@ describe("handleTabReturn", () => {
 
   it("falls back to a new window when getLastFocused only returns the Agent Window", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.borrowedTabs.set(7, { tabId: 7, originalWindowId: 200, originalIndex: 4 });
     const state: FakeTabState = {
       tabs: new Map([[7, { id: 7, windowId: 100 } as chrome.tabs.Tab]]),
@@ -1246,8 +1246,8 @@ describe("handleTabReturn", () => {
     // isAgentWindowId guard the tab would be moved into window 200,
     // letting bb22 write to it and destroying it when bb22 stops.
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100, 200]) });
-    const ctx = await sm.start("aa11");
-    await sm.start("bb22"); // owns Agent Window 200
+    const ctx = await sm.startWithWindow("aa11");
+    await sm.startWithWindow("bb22"); // owns Agent Window 200
     ctx.borrowedTabs.set(7, { tabId: 7, originalWindowId: 300, originalIndex: 4 });
     const state: FakeTabState = {
       tabs: new Map([[7, { id: 7, windowId: 100 } as chrome.tabs.Tab]]),
@@ -1273,7 +1273,7 @@ describe("handleTabReturn", () => {
 
   it("returnBorrowedTab honours an explicit isAgentWindowId predicate", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.borrowedTabs.set(7, { tabId: 7, originalWindowId: 300, originalIndex: 4 });
     const state: FakeTabState = {
       tabs: new Map([[7, { id: 7, windowId: 100 } as chrome.tabs.Tab]]),
@@ -1299,7 +1299,7 @@ describe("handleTabReturn", () => {
 
   it("returns not_found when the tab is not borrowed by this session", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const state: FakeTabState = { tabs: new Map(), nextTabId: 50, windowsClosed: new Set() };
     const { api } = makeTabMutationApi(state);
     const { api: windowsApi } = makeWindowsApi(state);
@@ -1313,7 +1313,7 @@ describe("handleTabReturn", () => {
 
   it("returnBorrowedTab surfaces a chrome.tabs.move failure as cdp_failed", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.borrowedTabs.set(7, { tabId: 7, originalWindowId: 200, originalIndex: 4 });
     const state: FakeTabState = {
       tabs: new Map([[7, { id: 7, windowId: 100 } as chrome.tabs.Tab]]),
@@ -1331,7 +1331,7 @@ describe("handleTabReturn", () => {
 
   it("falls back to a new window when moving back to the original position fails", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.borrowedTabs.set(7, { tabId: 7, originalWindowId: 200, originalIndex: 4 });
     const state: FakeTabState = {
       tabs: new Map([[7, { id: 7, windowId: 100 } as chrome.tabs.Tab]]),
@@ -1359,7 +1359,7 @@ describe("handleTabReturn", () => {
 describe("background tab initialization", () => {
   it("establishes execution before the destination can start without selecting the tab", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     const state: FakeTabState = { tabs: new Map(), nextTabId: 50, windowsClosed: new Set() };
     const { api, spies } = makeTabMutationApi(state);
     const acquireBackgroundExecution = vi.fn(async (session: string, tabId: number) => {
@@ -1384,7 +1384,7 @@ describe("background tab initialization", () => {
     true,
   ])("rolls back failed or cancelled initialization (cancel=%s)", async (cancel) => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     const state: FakeTabState = { tabs: new Map(), nextTabId: 50, windowsClosed: new Set() };
     const { api, spies } = makeTabMutationApi(state);
     const controller = new AbortController();
@@ -1411,7 +1411,7 @@ describe("background tab initialization", () => {
 
 it("creates a CDP-ready blank default tab so later navigation starts under the policy", async () => {
   const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-  await sm.start("aa11");
+  await sm.startWithWindow("aa11");
   const state: FakeTabState = { tabs: new Map(), nextTabId: 50, windowsClosed: new Set() };
   const { api, spies } = makeTabMutationApi(state);
   const acquireBackgroundExecution = vi.fn(async () => {});
@@ -1428,7 +1428,7 @@ it("creates a CDP-ready blank default tab so later navigation starts under the p
 
 it("returns a borrowed page without activating it when execution setup fails", async () => {
   const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-  const ctx = await sm.start("aa11");
+  const ctx = await sm.startWithWindow("aa11");
   const state: FakeTabState = {
     tabs: new Map([
       [
@@ -1477,7 +1477,7 @@ it.each([
   [false, true],
 ])("independently releases and closes failed creation (release=%s, close=%s)", async (releaseFails, closeFails) => {
   const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-  const ctx = await sm.start("aa11");
+  const ctx = await sm.startWithWindow("aa11");
   const state: FakeTabState = { tabs: new Map(), nextTabId: 50, windowsClosed: new Set() };
   const { api, spies } = makeTabMutationApi(state);
   if (closeFails) spies.remove.mockRejectedValueOnce(new Error("close failed"));
@@ -1506,7 +1506,7 @@ it.each([
 
 it("keeps borrowed tabs as the default target and preserves explicit targeting", async () => {
   const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-  const ctx = await sm.start("aa11");
+  const ctx = await sm.startWithWindow("aa11");
   const state: FakeTabState = {
     tabs: new Map([
       [

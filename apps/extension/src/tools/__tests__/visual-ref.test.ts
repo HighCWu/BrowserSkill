@@ -38,7 +38,7 @@ async function setup() {
       ensureActiveTab: async () => 4,
     },
   });
-  const ctx = await manager.start("test");
+  const ctx = await manager.startWithWindow("test");
   ctx.refStore.replace([
     ["e1", visual()],
     ["e2", { backendNodeId: 43, tabId: 4 }],

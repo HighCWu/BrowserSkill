@@ -96,7 +96,7 @@ describe.skipIf(!process.env.BSK_CLICK_CHROME)("real browser click readiness", (
               ensureActiveTab: async () => 4,
             },
           });
-          const ctx = await manager.start("click-test");
+          const ctx = await manager.startWithWindow("click-test");
           for (const mode of [
             "selector",
             "ref",
@@ -471,7 +471,7 @@ describe.skipIf(!process.env.BSK_CLICK_CHROME)("real browser click readiness", (
             ensureActiveTab: async () => 4,
           },
         });
-        const ctx = await manager.start("overlay-click");
+        const ctx = await manager.startWithWindow("overlay-click");
         const tab = { id: 4, windowId: 100, active: true } as chrome.tabs.Tab;
         const tabsApi = { get: async () => tab, query: async () => [tab] };
         const mouse: string[] = [];

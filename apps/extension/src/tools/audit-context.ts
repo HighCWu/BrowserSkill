@@ -12,10 +12,14 @@ export async function auditContext(
   if (!context) return null;
   const ref = typeof params.ref === "string" ? context.refStore.resolveEntry(params.ref) : null;
   const requestedTab = typeof params.tab_id === "number" ? params.tab_id : null;
+  // Window-less session (in-place workflow): no Agent Window to read the
+  // active tab from; only an explicit tab id can resolve context.
   const tab =
     requestedTab !== null
       ? await chrome.tabs.get(requestedTab)
-      : (await chrome.tabs.query({ windowId: context.agentWindowId, active: true }))[0];
+      : context.agentWindowId === undefined
+        ? undefined
+        : (await chrome.tabs.query({ windowId: context.agentWindowId, active: true }))[0];
   if (!tab?.id || !isAgentControlledTab(context, tab.id)) return null;
   let url: string | undefined;
   try {

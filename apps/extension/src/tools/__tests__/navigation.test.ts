@@ -259,7 +259,7 @@ describe("shouldTrustReadyStateProbe", () => {
 describe("handleNavigate", () => {
   it("defaults wait_until to load and resolves on the load lifecycle", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const fake = makeFakeCdp({ finalUrl: "https://example.com/landing" });
     const navP = handleNavigate(
       sm,
@@ -281,7 +281,7 @@ describe("handleNavigate", () => {
 
   it("registers lifecycle listeners before Page.navigate is sent", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const fake = makeFakeCdp({
       finalUrl: "https://example.com/fast",
       fireLifecycleDuringNavigate: "load",
@@ -304,7 +304,7 @@ describe("handleNavigate", () => {
 
   it("does not treat early subframe lifecycle as direct navigate completion", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const fake = makeFakeCdp({
       fireLifecycleDuringNavigate: "load",
       fireLifecycleDuringNavigateFrameId: "child-frame",
@@ -329,7 +329,7 @@ describe("handleNavigate", () => {
 
   it("does not complete navigate on stale loader lifecycle with readyState complete", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const fake = makeFakeCdp({
       readyState: "complete",
       beforeLoaderId: "loader-before",
@@ -353,7 +353,7 @@ describe("handleNavigate", () => {
 
   it("ignores stale loader lifecycle and accepts the new navigation loader", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const fake = makeFakeCdp({
       beforeLoaderId: "loader-before",
       navigateLoaderId: "loader-after",
@@ -379,7 +379,7 @@ describe("handleNavigate", () => {
 
   it("returns reached=timeout when no matching lifecycle fires", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const fake = makeFakeCdp();
     const navP = handleNavigate(
       sm,
@@ -406,7 +406,7 @@ describe("handleNavigate", () => {
 
   it("aborts when the AbortSignal is fired", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const fake = makeFakeCdp();
     const abort = new AbortController();
     const navP = handleNavigate(
@@ -428,7 +428,7 @@ describe("handleNavigate", () => {
 
   it("resolves wait_until=domcontentloaded when only load fires during navigate", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const fake = makeFakeCdp({
       fireLifecycleDuringNavigate: "load",
     });
@@ -448,7 +448,7 @@ describe("handleNavigate", () => {
 
   it("treats Page.frameNavigated as wait_until=commit", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const fake = makeFakeCdp();
     const navP = handleNavigate(
       sm,
@@ -471,7 +471,7 @@ describe("handleNavigate", () => {
 
   it("resolves wait_until=commit from Page.frameNavigated when the readyState probe fails", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     // Cross-origin-style navigation: the readyState probe can't read the
     // (already destroyed) old execution context, so commit must come from
     // the Page.frameNavigated event. Before the fix this timed out because
@@ -501,7 +501,7 @@ describe("handleNavigate", () => {
 describe("handleNavigateBack / Forward", () => {
   it("navigates to the previous history entry", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const fake = makeFakeCdp({
       historyIndex: 1,
       historyEntries: [
@@ -525,7 +525,7 @@ describe("handleNavigateBack / Forward", () => {
 
   it("returns invalid_params when there is no previous history", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const fake = makeFakeCdp({ historyIndex: 0 });
     const res = await handleNavigateBack(
       sm,
@@ -537,7 +537,7 @@ describe("handleNavigateBack / Forward", () => {
 
   it("navigateForward advances by +1 history entry", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const fake = makeFakeCdp({
       historyIndex: 0,
       historyEntries: [
@@ -560,7 +560,7 @@ describe("handleNavigateBack / Forward", () => {
 
   it("navigateForward returns invalid_params at the head of the history", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const fake = makeFakeCdp({
       historyIndex: 1,
       historyEntries: [
@@ -580,7 +580,7 @@ describe("handleNavigateBack / Forward", () => {
 describe("handleReload", () => {
   it("resolves when reload finishes before the waiter runs (lifecycle during reload)", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const fake = makeFakeCdp({
       readyState: "complete",
       beforeLoaderId: "loader-before",
@@ -599,7 +599,7 @@ describe("handleReload", () => {
 
   it("resolves via readyState probe when reload settles without lifecycle events", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const fake = makeFakeCdp({ readyStateSequence: ["loading", "complete"] });
     const res = await handleReload(
       sm,
@@ -613,7 +613,7 @@ describe("handleReload", () => {
 
   it("issues Page.reload with ignoreCache=false by default", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const fake = makeFakeCdp();
     const navP = handleReload(
       sm,
@@ -631,7 +631,7 @@ describe("handleReload", () => {
 
   it("hard=true sets ignoreCache", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const fake = makeFakeCdp();
     const navP = handleReload(
       sm,
@@ -651,7 +651,7 @@ it.each([
   "networkidle",
 ] as const)("follows client document succession for %s instead of the initial loader", async (phase) => {
   const manager = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-  await manager.start("aa11");
+  await manager.startWithWindow("aa11");
   const fake = makeFakeCdp();
   let settled = false;
   const work = handleNavigate(
@@ -683,7 +683,7 @@ it.each([
 
 it("does not overwrite a successor observed before Page.navigate resolves with its initial loader", async () => {
   const manager = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-  await manager.start("aa11");
+  await manager.startWithWindow("aa11");
   const fake = makeFakeCdp();
   const send = fake.cdp.send.bind(fake.cdp);
   fake.cdp.send = (async (tabId, method, params) => {
@@ -717,7 +717,7 @@ it.each([
   true,
 ])("resumes a cancelled successor without retiring the current loader (request=%s)", async (networkRequest) => {
   const manager = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-  await manager.start("aa11");
+  await manager.startWithWindow("aa11");
   const fake = makeFakeCdp();
   const send = fake.cdp.send.bind(fake.cdp);
   let current = "loader-before";
@@ -769,7 +769,7 @@ it.each([
   ["networkidle", "networkIdle"],
 ] as const)("preserves buffered %s through unrelated lifecycle events and cancellation", async (phase, lifecycle) => {
   const manager = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-  await manager.start("aa11");
+  await manager.startWithWindow("aa11");
   const fake = makeFakeCdp();
   const send = fake.cdp.send.bind(fake.cdp);
   let current = "loader-before";
@@ -819,7 +819,7 @@ it.each([
   ["networkidle", "load", "networkIdle"],
 ] as const)("does not reuse a predecessor's buffered %s after the successor commits", async (phase, earlierLifecycle, lifecycle) => {
   const manager = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-  await manager.start("aa11");
+  await manager.startWithWindow("aa11");
   const fake = makeFakeCdp();
   const send = fake.cdp.send.bind(fake.cdp);
   let current = "loader-before";

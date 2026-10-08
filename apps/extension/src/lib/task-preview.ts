@@ -69,8 +69,13 @@ export function focusTask(manager: SessionManager, sessionId: string) {
     await checkedUiTab(task, op, tabId);
     await op.mutate(tabId, () => chrome.tabs.update(tabId, { active: true }));
     await checkedUiTab(task, op, tabId);
-    await op.mutate(tabId, () => chrome.windows.update(task.agentWindowId, { focused: true }));
-    await checkedUiTab(task, op, tabId);
+    // Lazy window: an in-place-only session has no Agent Window to focus —
+    // activating the tab already brought its window forward.
+    const agentWindowId = task.agentWindowId;
+    if (agentWindowId !== undefined) {
+      await op.mutate(tabId, () => chrome.windows.update(agentWindowId, { focused: true }));
+      await checkedUiTab(task, op, tabId);
+    }
     return { focused: true };
   });
 }
@@ -191,7 +196,11 @@ async function downscale(jpegBase64: string, op: UiOperation): Promise<string> {
 export async function taskTarget(manager: SessionManager, sessionId: string): Promise<number> {
   const task = manager.get(sessionId);
   if (!task?.remote) throw new UiTaskError("not_found", "Task unavailable", "task_unavailable");
-  const tabs = await chrome.tabs.query({ windowId: task.agentWindowId });
+  // Window-less session (in-place workflow): the owned set lives across all
+  // windows (borrowed tabs stay in place), so query globally and filter.
+  const tabs = await chrome.tabs.query(
+    task.agentWindowId === undefined ? {} : { windowId: task.agentWindowId },
+  );
   if (manager.get(sessionId) !== task)
     throw new UiTaskError("not_found", "Task unavailable", "task_unavailable");
   const owned = tabs.filter(

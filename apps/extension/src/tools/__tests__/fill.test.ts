@@ -18,7 +18,7 @@ async function setup(markup = '<input value="old">') {
       ensureActiveTab: async () => 4,
     },
   });
-  const ctx = await manager.start("aa11");
+  const ctx = await manager.startWithWindow("aa11");
   ctx.refStore.set("e1", 12, { tabId: 4 });
   const script = vi.fn(async (params: ScriptParams): Promise<unknown> => {
     try {

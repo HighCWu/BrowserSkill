@@ -34,7 +34,7 @@ async function setup() {
       ensureActiveTab: async () => 7,
     },
   });
-  await manager.start("one");
+  await manager.startWithWindow("one");
   const tab = {
     id: 7,
     windowId: 100,

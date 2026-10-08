@@ -80,7 +80,7 @@ function makeFakeCdp(opts: FakeCdpOptions = {}) {
 describe("handleEvaluate", () => {
   it("rejects empty expression as invalid_params", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const fake = makeFakeCdp();
     const res = await handleEvaluate(
       sm,
@@ -92,7 +92,7 @@ describe("handleEvaluate", () => {
 
   it("evaluates 1+1 and returns ok with value 2", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const fake = makeFakeCdp({
       evaluate: () => ({ result: { type: "number", value: 2 } }),
     });
@@ -110,7 +110,7 @@ describe("handleEvaluate", () => {
 
   it("forwards await_promise/return_by_value with their defaults filled in", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     let observed: Record<string, unknown> | undefined;
     const fake = makeFakeCdp({
       evaluate: (params) => {
@@ -133,7 +133,7 @@ describe("handleEvaluate", () => {
 
   it("respects explicit await_promise=false and return_by_value=false overrides", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     let observed: Record<string, unknown> | undefined;
     const fake = makeFakeCdp({
       evaluate: (params) => {
@@ -159,7 +159,7 @@ describe("handleEvaluate", () => {
 
   it("returns a JSON-safe RemoteObject descriptor when return_by_value=false", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const fake = makeFakeCdp({
       evaluate: () => ({
         result: {
@@ -194,7 +194,7 @@ describe("handleEvaluate", () => {
 
   it("returns ok=false with error text when the expression throws", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const fake = makeFakeCdp({
       evaluate: () => ({
         result: { type: "object", subtype: "error" },
@@ -223,7 +223,7 @@ describe("handleEvaluate", () => {
 
   it("stringifies unserializableValue (Infinity / NaN / BigInt)", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const fake = makeFakeCdp({
       evaluate: () => ({
         result: { type: "number", unserializableValue: "Infinity" },
@@ -241,7 +241,7 @@ describe("handleEvaluate", () => {
 
   it("allows evaluating against a borrowed tab inside the Agent Window", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.borrowedTabs.set(7, { tabId: 7, originalWindowId: 200, originalIndex: 0 });
     const fake = makeFakeCdp();
     fake.tabsApi.get = vi.fn(
@@ -258,7 +258,7 @@ describe("handleEvaluate", () => {
 
   it("returns dialogs observed during evaluate", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const fake = makeFakeCdp({ dialogBlocking: true });
     const res = await handleEvaluate(
       sm,
@@ -274,7 +274,7 @@ describe("handleEvaluate", () => {
 
   it("rejects tabs outside the Agent Window with permission_denied", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const fake = makeFakeCdp();
     fake.tabsApi.get = vi.fn(
       async () => ({ id: 11, windowId: 200, active: true }) as chrome.tabs.Tab,

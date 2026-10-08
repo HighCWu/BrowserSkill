@@ -79,7 +79,7 @@ function makeFakeCdp(
 describe("handleWaitForNavigation", () => {
   it("resolves immediately when the page is already past the requested lifecycle", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const fake = makeFakeCdp({ readyState: "complete" });
     const res = await handleWaitForNavigation(
       sm,
@@ -93,7 +93,7 @@ describe("handleWaitForNavigation", () => {
 
   it("resolves on the requested lifecycle event (defaults to load)", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const fake = makeFakeCdp();
     const p = handleWaitForNavigation(
       sm,
@@ -112,7 +112,7 @@ describe("handleWaitForNavigation", () => {
 
   it("ignores matching lifecycle events from subframes", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const fake = makeFakeCdp({ mainFrameId: "main-frame" });
     const p = handleWaitForNavigation(
       sm,
@@ -133,7 +133,7 @@ describe("handleWaitForNavigation", () => {
 
   it("does not treat readyState complete as networkidle (must wait for event)", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const fake = makeFakeCdp({ readyState: "complete" });
     const p = handleWaitForNavigation(
       sm,
@@ -147,7 +147,7 @@ describe("handleWaitForNavigation", () => {
 
   it("returns cancelled immediately when the AbortSignal is already aborted", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const fake = makeFakeCdp();
     const abort = new AbortController();
     abort.abort();
@@ -163,7 +163,7 @@ describe("handleWaitForNavigation", () => {
 
   it("allows waiting on a borrowed tab moved inside the Agent Window", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.borrowedTabs.set(7, { tabId: 7, originalWindowId: 200, originalIndex: 0 });
     const fake = makeFakeCdp();
     fake.tabsApi.get = vi.fn(

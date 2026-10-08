@@ -18,7 +18,7 @@ function fakeAgentWindow(ids: number[]) {
 describe("lookupSnapshotRef", () => {
   it("resolves @e3 and e3 to the same backendNodeId", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.refStore.set("e3", 1234, { tabId: 4 });
 
     expect(lookupSnapshotRef(ctx, "@e3", 4)).toEqual({
@@ -33,13 +33,13 @@ describe("lookupSnapshotRef", () => {
 
   it("returns null for unknown ref", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     expect(lookupSnapshotRef(ctx, "@e99", 4)).toBeNull();
   });
 
   it("returns null when ref belongs to another tab", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.refStore.set("e3", 1234, { tabId: 4 });
     expect(lookupSnapshotRef(ctx, "@e3", 5)).toBeNull();
   });
@@ -48,7 +48,7 @@ describe("lookupSnapshotRef", () => {
 describe("resolveSnapshotRef", () => {
   it("preserves the frame and child session needed to route iframe refs", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.refStore.set("e3", 1234, {
       tabId: 4,
       frameId: "child-frame",
@@ -67,7 +67,7 @@ describe("resolveSnapshotRef", () => {
 
   it("returns not_found for unknown ref", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     const res = resolveSnapshotRef(ctx, "@e99", 4);
     expect(res).toMatchObject({
       code: "not_found",
@@ -78,7 +78,7 @@ describe("resolveSnapshotRef", () => {
 
   it("returns not_found when ref belongs to another tab", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.refStore.set("e7", 4242, { tabId: 4 });
     const res = resolveSnapshotRef(ctx, "@e7", 5);
     expect(res).toMatchObject({
@@ -90,7 +90,7 @@ describe("resolveSnapshotRef", () => {
 
   it("preserves original ref string in error message for bare eN form", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     const res = resolveSnapshotRef(ctx, "e99", 4);
     expect(res).toMatchObject({
       code: "not_found",
@@ -100,7 +100,7 @@ describe("resolveSnapshotRef", () => {
 
   it("returns backendNodeId and refKey on success", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.refStore.set("e3", 1234, { tabId: 4 });
     expect(resolveSnapshotRef(ctx, "@e3", 4)).toEqual({
       backendNodeId: 1234,

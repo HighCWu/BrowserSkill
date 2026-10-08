@@ -16,7 +16,13 @@ import {
 } from "@/session-manager/manager";
 import type { RpcError } from "@/transport/types";
 import { rpcError } from "./errors";
-import { type CdpRunner, cdpBlockedUrlReason, isRpcError, lookupSession } from "./shared";
+import {
+  type CdpRunner,
+  cdpBlockedUrlReason,
+  ensureAgentWindowOrError,
+  isRpcError,
+  lookupSession,
+} from "./shared";
 
 export type TabScope = "user" | "agent" | "all";
 
@@ -89,13 +95,18 @@ export interface TabBorrowParams {
   /** Legacy input, ignored. The browser preference decides confirmation. */
   confirm?: boolean;
   confirmation_timeout_ms?: number;
+  /** Attach the tab where it lives: no move, no confirmation prompt. */
+  in_place?: boolean;
 }
 
 export interface TabBorrowResult {
   tab_id: number;
   original_window_id: number;
   original_index: number;
-  agent_window_id: number;
+  /** Absent for in-place borrows: the session may never open an Agent Window. */
+  agent_window_id?: number;
+  /** True when the tab was attached in place instead of moved. */
+  in_place?: boolean;
 }
 
 export interface TabReturnParams {
@@ -251,7 +262,7 @@ export async function handleTabList(
   // per-tab classification is O(1).
   const otherAgentWindowIds = new Set<number>();
   for (const s of manager.list()) {
-    if (s.sessionId !== params.session_id) {
+    if (s.sessionId !== params.session_id && s.agentWindowId !== undefined) {
       otherAgentWindowIds.add(s.agentWindowId);
     }
   }
@@ -439,6 +450,12 @@ export async function handleTabCreate(
   const paramErr = validateTabCreateParams(params);
   if (paramErr) return paramErr;
 
+  // Lazy Agent Window: tab_create is the feature that needs it, so the
+  // first create materializes the window (in-place-only sessions never
+  // reach this).
+  const windowErr = await ensureAgentWindowOrError(manager, ctx, "tab_create", deps.signal);
+  if (isRpcError(windowErr)) return windowErr;
+
   const props = buildCreateProps(ctx, params);
   // Match the session home: an unspecified automation URL is a navigable blank
   // document, not Chrome's restricted New Tab page.
@@ -495,7 +512,7 @@ export async function handleTabCreate(
 
   return {
     tab_id: tab.id,
-    window_id: ctx.agentWindowId,
+    window_id: typeof tab.windowId === "number" ? tab.windowId : (ctx.agentWindowId as number),
     url: prepare ? (props.url ?? "about:blank") : (tab.url ?? tab.pendingUrl ?? ""),
   };
 }
@@ -646,10 +663,9 @@ export async function handleTabSelect(
     };
   }
   ctx.defaultTabId = params.tab_id;
-  // windowId stable across `update({active:true})`; reuse what
-  // authoriseAgentTab already loaded so we don't issue a second `get`.
-  const windowId = typeof tabOrErr.windowId === "number" ? tabOrErr.windowId : ctx.agentWindowId;
-  return { tab_id: params.tab_id, window_id: windowId };
+  // authoriseAgentTab guaranteed a numeric windowId; no Agent Window
+  // fallback exists anymore (the window may not have been created).
+  return { tab_id: params.tab_id, window_id: tabOrErr.windowId as number };
 }
 
 // ---------------------------------------------------------------------------
@@ -665,6 +681,8 @@ interface ExecuteBorrowCoreParams {
   manager: SessionManager;
   ctx: SessionContext;
   tabId: number;
+  /** Materialized Agent Window id (lazy window is ensured before the move). */
+  agentWindowId: number;
   confirmationTimeoutMs?: number;
   tabsApi: TabMutationApi;
   approveBorrow: BorrowConfirmationApprover;
@@ -838,7 +856,7 @@ async function executeBorrowCore(
   const moveErr = await moveTabForBorrow(
     p.tabsApi,
     p.tabId,
-    p.ctx.agentWindowId,
+    p.agentWindowId,
     originalWindowId,
     originalIndex,
     p.signal,
@@ -957,10 +975,20 @@ export async function handleTabBorrow(
             "confirmation_ui_unavailable",
             "Borrow confirmation is unavailable",
           ));
+      // Legacy borrow moves the tab into the Agent Window; materialize the
+      // lazy window before the move (in-place borrows skip this entirely).
+      const agentWindowIdOrErr = await ensureAgentWindowOrError(
+        manager,
+        ctx,
+        "tab_borrow",
+        deps.signal,
+      );
+      if (isRpcError(agentWindowIdOrErr)) return agentWindowIdOrErr;
       const coreResult = await executeBorrowCore({
         manager,
         ctx,
         tabId: params.tab_id,
+        agentWindowId: agentWindowIdOrErr,
         confirmationTimeoutMs: params.confirmation_timeout_ms,
         tabsApi,
         approveBorrow: approve,

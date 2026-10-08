@@ -25,7 +25,7 @@ async function setup(element?: HTMLElement, childSession = false) {
       ensureActiveTab: async () => 4,
     },
   });
-  const ctx = await manager.start("aa11");
+  const ctx = await manager.startWithWindow("aa11");
   ctx.refStore.set("e1", 12, {
     tabId: 4,
     ...(childSession ? { frameId: "child", cdpSessionId: "child-session" } : {}),

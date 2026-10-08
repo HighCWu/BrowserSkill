@@ -163,7 +163,11 @@ export default defineBackground(() => {
     if (controlModes.get(sessionId) === mode) return;
     controlModes.set(sessionId, mode);
     const ctx = sessions.get(sessionId);
-    if (ctx) void pushOverlayStateForWindow(ctx.agentWindowId);
+    if (!ctx) return;
+    // Window-less sessions (in-place workflow) have no Agent Window loop to
+    // piggyback on; the global re-push covers their in-place tabs.
+    if (ctx.agentWindowId === undefined) void pushAllAgentOverlayStates();
+    else void pushOverlayStateForWindow(ctx.agentWindowId);
   }
 
   function overlayStateForWindow(windowId?: number): OverlayAgentStateMessage {
@@ -247,7 +251,12 @@ export default defineBackground(() => {
   }
 
   function pushAllAgentOverlayStates(): void {
-    const windowIds = new Set(sessions.list().map((ctx) => ctx.agentWindowId));
+    const windowIds = new Set(
+      sessions
+        .list()
+        .map((ctx) => ctx.agentWindowId)
+        .filter((id): id is number => id !== undefined),
+    );
     for (const windowId of windowIds) {
       void pushOverlayStateForWindow(windowId);
     }

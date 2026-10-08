@@ -3,14 +3,17 @@
   "title": "TabBorrowResult",
   "type": "object",
   "required": [
-    "agent_window_id",
     "original_index",
     "original_window_id",
     "tab_id"
   ],
   "properties": {
     "agent_window_id": {
-      "type": "integer",
+      "description": "The session's Agent Window, when the borrow moved the tab into one. Absent for in-place borrows and lazily-windowed sessions: the window is a materialized-on-demand resource and may never exist.",
+      "type": [
+        "integer",
+        "null"
+      ],
       "format": "int64"
     },
     "in_place": {

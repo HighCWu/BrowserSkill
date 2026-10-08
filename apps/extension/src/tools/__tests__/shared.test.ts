@@ -43,7 +43,7 @@ describe("lookupSession", () => {
 
   it("returns SessionContext when the session exists", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow() });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     const result = lookupSession(sm, { session_id: "aa11" }, "tool.test");
     expect(result).toBe(ctx);
   });
@@ -109,7 +109,7 @@ describe("CDP target URL guard", () => {
 
   it("falls back from a restricted default active tab to an accessible agent tab", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow() });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     const tabsApi = {
       get: vi.fn(),
       query: vi.fn(async (query: chrome.tabs.QueryInfo) => {
@@ -150,7 +150,7 @@ describe("CDP target URL guard", () => {
 
   it("does not replace an explicitly requested restricted tab", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow() });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     const tabsApi = {
       get: vi.fn(
         async () =>
@@ -177,7 +177,7 @@ describe("CDP target URL guard", () => {
 describe("remote tab ownership", () => {
   it("requires an explicit claim even for passive reads and user tabs inside the Agent Window", async () => {
     const manager = new SessionManager({ agentWindow: fakeAgentWindow(), remote: () => true });
-    const context = await manager.start("remote");
+    const context = await manager.startWithWindow("remote");
     const target = { tabId: 9, windowId: 100, active: true, url: "https://private.example" };
     const tabs = {
       get: vi.fn(async () => ({ id: 9, windowId: 100, active: true }) as chrome.tabs.Tab),
@@ -212,7 +212,7 @@ describe("default target pin", () => {
 
   it("prefers the pinned borrow tab over the Agent Window's active tab", async () => {
     const manager = new SessionManager({ agentWindow: fakeAgentWindow() });
-    const context = await manager.start("aa11");
+    const context = await manager.startWithWindow("aa11");
     const borrowed = { id: 7, windowId: 200, index: 4, active: true } as chrome.tabs.Tab;
     const home = { id: 9, windowId: 100, index: 0, active: true } as chrome.tabs.Tab;
     const tabs = fakeTabs([borrowed, home]);
@@ -231,7 +231,7 @@ describe("default target pin", () => {
 
   it("self-heals the pin when the pinned tab is gone", async () => {
     const manager = new SessionManager({ agentWindow: fakeAgentWindow() });
-    const context = await manager.start("aa11");
+    const context = await manager.startWithWindow("aa11");
     const home = { id: 9, windowId: 100, index: 0, active: true } as chrome.tabs.Tab;
     const tabs = fakeTabs([home]);
     context.defaultTabId = 7;
@@ -244,7 +244,7 @@ describe("default target pin", () => {
 
   it("self-heals the pin when the pinned tab is no longer agent-controlled", async () => {
     const manager = new SessionManager({ agentWindow: fakeAgentWindow() });
-    const context = await manager.start("aa11");
+    const context = await manager.startWithWindow("aa11");
     const stray = { id: 7, windowId: 200, index: 1, active: true } as chrome.tabs.Tab;
     const home = { id: 9, windowId: 100, index: 0, active: true } as chrome.tabs.Tab;
     const tabs = fakeTabs([stray, home]);

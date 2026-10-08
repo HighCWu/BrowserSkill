@@ -89,7 +89,7 @@ async function fixture() {
   vi.mocked(ChromiumCdp.prototype.releaseSessionTab).mockResolvedValue();
   (background as unknown as () => void)();
   const deps = vi.mocked(ToolDispatcher).mock.calls.at(-1)![0];
-  const task = await deps.sessions.start("one");
+  const task = await deps.sessions.startWithWindow("one");
   return { overlay, onDetached, sendMessage, deps, task };
 }
 
@@ -138,7 +138,12 @@ it("does not reset tabs without an observed claim", async () => {
 
 it("global re-pushes resolve control for in-place borrows pushed by tab id only", async () => {
   const f = await fixture();
-  f.task.borrowedTabs.set(30, { tabId: 30, originalWindowId: 77, inPlace: true });
+  f.task.borrowedTabs.set(30, {
+    tabId: 30,
+    originalWindowId: 77,
+    originalIndex: 0,
+    inPlace: true,
+  });
   // Handshake verdict flip is the pushAllAgentOverlayStates trigger: in-place
   // tabs are pushed without a window id and must not be told to hide.
   const onHandshake = vi.mocked(ConnectionController.prototype.subscribe).mock.calls.at(0)![0];

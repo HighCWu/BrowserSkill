@@ -32,7 +32,7 @@ globalThis.run = async (url, overlay, active) => {
   await new Promise(r=>setTimeout(r,500));
   const [control] = await chrome.tabs.query({windowId:currentWindow.id,active:true});
   const manager = new SessionManager({agentWindow:{create:async()=>({windowId:currentWindow.id,initialTabIds:[control.id]}),remove:async()=>{},ensureActiveTab:async()=>control.id}});
-  const ctx = await manager.start('regression');
+  const ctx = await manager.startWithWindow('regression');
   const exports = new ScreenshotExports(id=>manager.has(id));
   const activated=[], focused=[], calls=[], trace=[];
   const message=chrome.tabs.sendMessage.bind(chrome.tabs);

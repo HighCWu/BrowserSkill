@@ -1,11 +1,25 @@
-import { AGENT_WINDOW_HOME, type AgentWindowApi, chromeAgentWindowApi } from "./agent-window";
+import {
+  AGENT_WINDOW_HOME,
+  type AgentWindowApi,
+  type AgentWindowCreateOptions,
+  chromeAgentWindowApi,
+} from "./agent-window";
 import { RefStore } from "./ref-store";
 
 export interface SessionContext {
   /** Remote connections retain dedicated windows, with explicit page ownership. */
   remote?: boolean;
   sessionId: string;
-  agentWindowId: number;
+  /**
+   * The session's Agent Window, created lazily: `start` registers the
+   * session without opening any window, and the window materializes on
+   * first need (`ensureAgentWindow`) — `tab_create`, a legacy (moving)
+   * `tab_borrow`, `window_resize`, `record_start`. In-place workflows
+   * never trigger it, so no window and no blank home tab appear.
+   */
+  agentWindowId?: number;
+  /** Creation options captured at `start` for the lazy `ensureAgentWindow`. */
+  agentWindowOptions?: AgentWindowCreateOptions;
   refStore: RefStore;
   borrowedTabs: Map<number, BorrowedTab>;
   /**
@@ -121,6 +135,7 @@ export class SessionManager {
   private readonly windowIndex = new Map<number, string>();
   private readonly borrowReservations = new Map<number, string>();
   private readonly expectedWindowClosures = new WeakSet<SessionContext>();
+  private readonly pendingWindowCreations = new Map<string, Promise<number>>();
   private readonly agentWindow: AgentWindowApi;
   private readonly now: () => number;
 
@@ -257,11 +272,14 @@ export class SessionManager {
   }
 
   /**
-   * Spin up a fresh session: open a new Agent Window with an
-   * `about:blank` tab and register the context.
+   * Register a fresh session **without opening any window**.
    *
-   * Returns the created window id so callers can echo it back to the
-   * daemon in the `tool.session_start` reply.
+   * The Agent Window is a lazily-created resource since the in-place
+   * borrow workflow became the default: a session that only borrows user
+   * tabs in place never needs one, so `start` captures the creation
+   * options and leaves the window to `ensureAgentWindow`. Returns the
+   * context immediately; callers echo `agent_window_id` (absent until a
+   * window exists) back to the daemon.
    */
   async start(sessionId: string, opts: SessionStartOptions = {}): Promise<SessionContext> {
     if (this.sessions.has(sessionId)) {
@@ -269,60 +287,99 @@ export class SessionManager {
     }
     throwIfSessionStartAborted(opts.signal);
 
-    let windowId: number | null = null;
-    const agentCreatedTabs = new Set<number>();
+    const { signal: _signal, size, focused, ...rest } = opts;
+    void rest;
+    const agentWindowOptions: AgentWindowCreateOptions = {
+      ...(size ? { size } : {}),
+      ...(focused !== undefined ? { focused } : {}),
+    };
+    const ctx: SessionContext = {
+      ...(this.remote() ? { remote: true } : {}),
+      sessionId,
+      ...(Object.keys(agentWindowOptions).length > 0 ? { agentWindowOptions } : {}),
+      refStore: new RefStore(),
+      borrowedTabs: new Map(),
+      agentCreatedTabs: new Set<number>(),
+      createdAtMs: this.now(),
+    };
+    this.sessions.set(sessionId, ctx);
+    return ctx;
+  }
+
+  /**
+   * `start` + immediate `ensureAgentWindow` — the eager equivalent of the
+   * old window-at-start behavior. Callers that know they need the Agent
+   * Window (tests, remote sessions) use this; everything else stays lazy.
+   */
+  async startWithWindow(
+    sessionId: string,
+    opts: SessionStartOptions = {},
+  ): Promise<SessionContext> {
+    const ctx = await this.start(sessionId, opts);
+    await this.ensureAgentWindow(ctx, { signal: opts.signal });
+    return ctx;
+  }
+
+  /**
+   * Materialize the session's Agent Window on first need. Concurrent
+   * callers share one creation; a mid-flight abort rolls the window back.
+   * Resolves with the window id and registers the window + its home tab
+   * as session-owned.
+   */
+  async ensureAgentWindow(
+    ctx: SessionContext,
+    opts: { signal?: AbortSignal } = {},
+  ): Promise<number> {
+    if (ctx.agentWindowId !== undefined) return ctx.agentWindowId;
+    const inFlight = this.pendingWindowCreations.get(ctx.sessionId);
+    if (inFlight) return inFlight;
+    const creation = this.createAgentWindowNow(ctx, opts.signal).finally(() => {
+      this.pendingWindowCreations.delete(ctx.sessionId);
+    });
+    this.pendingWindowCreations.set(ctx.sessionId, creation);
+    return creation;
+  }
+
+  private async createAgentWindowNow(ctx: SessionContext, signal?: AbortSignal): Promise<number> {
+    throwIfSessionStartAborted(signal);
+    const created = await this.agentWindow.create(AGENT_WINDOW_HOME, ctx.agentWindowOptions ?? {});
+    const windowId = created.windowId;
+    const agentCreatedTabs = new Set<number>(created.initialTabIds);
     try {
-      const { signal: _signal, ...createOptions } = opts;
-      const created = await this.agentWindow.create(AGENT_WINDOW_HOME, createOptions);
-      windowId = created.windowId;
-      for (const tabId of created.initialTabIds) agentCreatedTabs.add(tabId);
-      throwIfSessionStartAborted(opts.signal);
+      throwIfSessionStartAborted(signal);
       const homeTabId = await this.agentWindow.ensureActiveTab(
         windowId,
         AGENT_WINDOW_HOME,
         agentCreatedTabs,
       );
       agentCreatedTabs.add(homeTabId);
-      throwIfSessionStartAborted(opts.signal);
-
-      const ctx: SessionContext = {
-        ...(this.remote() ? { remote: true } : {}),
-        sessionId,
-        agentWindowId: windowId,
-        refStore: new RefStore(),
-        borrowedTabs: new Map(),
-        // Capture ownership at creation, before initialization can fail.
-        // Later tabs remain free until `tab_create` or `tab_borrow` identifies
-        // them by their concrete Chrome tab id.
-        agentCreatedTabs,
-        createdAtMs: this.now(),
-      };
-      this.sessions.set(sessionId, ctx);
-      this.windowIndex.set(windowId, sessionId);
-      return ctx;
+      throwIfSessionStartAborted(signal);
     } catch (startupError) {
-      if (windowId !== null) {
-        try {
-          await this.agentWindow.remove(windowId);
-        } catch (cleanupError) {
-          // The daemon may retry stop after a failed startup rollback. Retain
-          // the exact window handle until closure is confirmed.
-          const pending: SessionContext = {
-            ...(this.remote() ? { remote: true } : {}),
-            sessionId,
-            agentWindowId: windowId,
-            refStore: new RefStore(),
-            borrowedTabs: new Map(),
-            agentCreatedTabs,
-            createdAtMs: this.now(),
-          };
-          this.sessions.set(sessionId, pending);
-          this.windowIndex.set(windowId, sessionId);
-          throw new SessionStartCleanupError(windowId, startupError, cleanupError);
-        }
+      try {
+        await this.agentWindow.remove(windowId);
+      } catch (cleanupError) {
+        // Retain the exact window handle on the context (indexed for
+        // findByWindowId) so a retried `stop` can close it.
+        ctx.agentWindowId = windowId;
+        for (const tabId of agentCreatedTabs) ctx.agentCreatedTabs.add(tabId);
+        this.windowIndex.set(windowId, ctx.sessionId);
+        throw new SessionStartCleanupError(windowId, startupError, cleanupError);
       }
       throw startupError;
     }
+    // Re-check the session still exists (a concurrent stop must win).
+    if (this.sessions.get(ctx.sessionId) !== ctx) {
+      try {
+        await this.agentWindow.remove(windowId);
+      } catch {
+        /* Session teardown already reported the state; nothing to add. */
+      }
+      throw new Error(`[bh] session ${ctx.sessionId} ended during Agent Window creation`);
+    }
+    ctx.agentWindowId = windowId;
+    for (const tabId of agentCreatedTabs) ctx.agentCreatedTabs.add(tabId);
+    this.windowIndex.set(windowId, ctx.sessionId);
+    return windowId;
   }
 
   /**
@@ -338,11 +395,11 @@ export class SessionManager {
   ): Promise<SessionContext | null> {
     const ctx = this.sessions.get(sessionId);
     if (!ctx) return null;
-    if (!options.dropOnly) {
+    if (!options.dropOnly && ctx.agentWindowId !== undefined) {
       await this.agentWindow.remove(ctx.agentWindowId);
     }
     this.sessions.delete(sessionId);
-    this.windowIndex.delete(ctx.agentWindowId);
+    if (ctx.agentWindowId !== undefined) this.windowIndex.delete(ctx.agentWindowId);
     return ctx;
   }
 

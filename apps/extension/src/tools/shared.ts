@@ -18,6 +18,7 @@ import {
   isInPlaceBorrowedTab,
   type SessionContext,
   type SessionManager,
+  SessionStartCleanupError,
 } from "@/session-manager/manager";
 import { normaliseRef } from "@/session-manager/ref-store";
 import type { ConsoleResult, JavaScriptDialogInfo, RpcError } from "@/transport/types";
@@ -287,6 +288,16 @@ async function resolveVisibleTargetTab(
     }
     delete ctx.defaultTabId;
   }
+  // No pinned target: a window-less (in-place workflow) session has no
+  // Agent Window to fall back to — ask for an explicit target instead of
+  // silently acting on whatever is active in some other window.
+  if (ctx.agentWindowId === undefined) {
+    return {
+      code: "not_found",
+      message:
+        "no default target: this session has no Agent Window and no pinned tab; borrow a tab (tab borrow --in-place) or create one (tab create) first",
+    };
+  }
   const tabs = await api.query({ active: true, windowId: ctx.agentWindowId });
   const first = tabs.find((t) => typeof t.id === "number");
   if (!first || typeof first.id !== "number") {
@@ -302,6 +313,38 @@ async function resolveVisibleTargetTab(
     url: first.url,
     pendingUrl: first.pendingUrl,
   };
+}
+
+/**
+ * Lazy Agent Window materialization for tools that genuinely need the
+ * window (`tab_create`, legacy `tab_borrow`, `window_resize`,
+ * `record_start`). In-place-only sessions never call these, so no window
+ * and no blank home tab appear at `session_start`. Chrome/API failures
+ * surface as `protocol_error`.
+ */
+export async function ensureAgentWindowOrError(
+  manager: SessionManager,
+  ctx: SessionContext,
+  toolName: string,
+  signal?: AbortSignal,
+): Promise<number | RpcError> {
+  try {
+    return await manager.ensureAgentWindow(ctx, { signal });
+  } catch (err) {
+    // AbortError propagates so the dispatcher classifies the RPC as
+    // cancelled instead of a protocol failure.
+    if ((err as { name?: string } | null)?.name === "AbortError") throw err;
+    if (err instanceof SessionStartCleanupError) {
+      return rpcError("protocol_error", "cleanup_failed", err.message, {
+        resource_type: "agent_window",
+        resource_id: err.windowId,
+      });
+    }
+    return {
+      code: "protocol_error",
+      message: `${toolName}: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
 }
 
 export function isRpcError(v: unknown): v is RpcError {
@@ -392,7 +435,8 @@ export async function resolveCdpAccessibleTargetTab(
   const restricted = enforceCdpAccessibleTarget(target, toolName);
   if (!restricted) return target;
   if (tabId !== undefined) return restricted;
-
+  // No Agent Window (in-place workflow): there is no sibling-tab scan to run.
+  if (ctx.agentWindowId === undefined) return restricted;
   const tabs = await api.query({ windowId: ctx.agentWindowId });
   for (const tab of tabs) {
     if (ctx.remote && (tab.id === undefined || !isAgentControlledTab(ctx, tab.id))) continue;

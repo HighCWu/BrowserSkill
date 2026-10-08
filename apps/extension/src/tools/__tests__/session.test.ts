@@ -92,7 +92,7 @@ describe("handleSessionStop with auto-return", () => {
     true,
   ])("preserves recording cleanup order across a failed return (remote=%s)", async (remote) => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]), remote: () => remote });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.borrowedTabs.set(7, { tabId: 7, originalWindowId: 200, originalIndex: 0 });
     const state: FakeState = {
       tabs: new Map([[7, { id: 7, windowId: 100 } as chrome.tabs.Tab]]),
@@ -128,7 +128,7 @@ describe("handleSessionStop with auto-return", () => {
   it("leaves the session untouched when cancellation arrived before teardown", async () => {
     const aw = fakeAgentWindow([100]);
     const sm = new SessionManager({ agentWindow: aw });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const cdp = { detachSession: vi.fn(async () => {}) };
     const controller = new AbortController();
     controller.abort();
@@ -148,7 +148,7 @@ describe("handleSessionStop with auto-return", () => {
   it("does not close the Agent Window when cancellation lands during CDP detach", async () => {
     const aw = fakeAgentWindow([100]);
     const sm = new SessionManager({ agentWindow: aw });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const controller = new AbortController();
     let finishDetach: () => void = () => {};
     const detach = new Promise<void>((resolve) => {
@@ -174,7 +174,7 @@ describe("handleSessionStop with auto-return", () => {
   it("returns every borrowed tab and closes the Agent Window in the right order", async () => {
     const aw = fakeAgentWindow([100]);
     const sm = new SessionManager({ agentWindow: aw });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.borrowedTabs.set(1, { tabId: 1, originalWindowId: 200, originalIndex: 0 });
     ctx.borrowedTabs.set(2, { tabId: 2, originalWindowId: 200, originalIndex: 1 });
     ctx.borrowedTabs.set(3, { tabId: 3, originalWindowId: 201, originalIndex: 2 });
@@ -232,7 +232,7 @@ describe("handleSessionStop with auto-return", () => {
   it("resets agent overlays for tabs returned during session_stop auto-cleanup", async () => {
     const aw = fakeAgentWindow([100]);
     const sm = new SessionManager({ agentWindow: aw });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.borrowedTabs.set(7, { tabId: 7, originalWindowId: 200, originalIndex: 3 });
 
     const state: FakeState = {
@@ -260,7 +260,7 @@ describe("handleSessionStop with auto-return", () => {
   it("falls back when the original window is gone but still completes stop", async () => {
     const aw = fakeAgentWindow([100]);
     const sm = new SessionManager({ agentWindow: aw });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.borrowedTabs.set(7, { tabId: 7, originalWindowId: 200, originalIndex: 3 });
 
     const state: FakeState = {
@@ -283,7 +283,7 @@ describe("handleSessionStop with auto-return", () => {
   it("keeps the session open when any borrowed tab cannot be returned", async () => {
     const aw = fakeAgentWindow([100]);
     const sm = new SessionManager({ agentWindow: aw });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.borrowedTabs.set(1, { tabId: 1, originalWindowId: 200, originalIndex: 0 });
     ctx.borrowedTabs.set(2, { tabId: 2, originalWindowId: 200, originalIndex: 1 });
 
@@ -320,7 +320,7 @@ describe("handleSessionStop with auto-return", () => {
   it("clears the RefStore before window teardown", async () => {
     const aw = fakeAgentWindow([100]);
     const sm = new SessionManager({ agentWindow: aw });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     // Insert a fake ref so we can verify clear() ran.
     ctx.refStore.set("e1", 123, { tabId: 7 });
     const state: FakeState = {
@@ -341,7 +341,7 @@ describe("handleSessionStop with auto-return", () => {
   ])("finishes stopping when a borrowed tab closes %s", async (timing) => {
     const aw = fakeAgentWindow([100]);
     const sm = new SessionManager({ agentWindow: aw });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.borrowedTabs.set(1, { tabId: 1, originalWindowId: 200, originalIndex: 0 });
     ctx.borrowedTabs.set(2, { tabId: 2, originalWindowId: 200, originalIndex: 1 });
     const state: FakeState = {
@@ -408,7 +408,7 @@ describe("handleSessionStop window release (issue #57)", () => {
     // return a known id.
     aw.ensureActiveTab = vi.fn(async () => 10);
     const sm = new SessionManager({ agentWindow: aw });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.agentCreatedTabs.add(11);
     ctx.agentCreatedTabs.add(12);
     // user tab 99 (created via Chrome UI, NOT in agentCreatedTabs)
@@ -446,7 +446,7 @@ describe("handleSessionStop window release (issue #57)", () => {
     const aw = fakeAgentWindow([agentWindowId]);
     aw.ensureActiveTab = vi.fn(async () => 10);
     const sm = new SessionManager({ agentWindow: aw });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.agentCreatedTabs.add(11);
     const state: FakeState = {
       tabs: new Map([
@@ -474,7 +474,7 @@ describe("handleSessionStop window release (issue #57)", () => {
     const aw = fakeAgentWindow([agentWindowId]);
     aw.ensureActiveTab = vi.fn(async () => 10);
     const sm = new SessionManager({ agentWindow: aw });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.agentCreatedTabs.add(11); // no longer in state → remove throws
     const state: FakeState = {
       tabs: new Map([[10, { id: 10, windowId: agentWindowId } as chrome.tabs.Tab]]),
@@ -503,7 +503,7 @@ describe("handleSessionStop window release (issue #57)", () => {
     const aw = fakeAgentWindow([agentWindowId]);
     aw.ensureActiveTab = vi.fn(async () => 10);
     const sm = new SessionManager({ agentWindow: aw });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.agentCreatedTabs.add(11);
     const state: FakeState = {
       tabs: new Map([
@@ -530,7 +530,7 @@ describe("handleSessionStop window release (issue #57)", () => {
     const aw = fakeAgentWindow([agentWindowId]);
     aw.ensureActiveTab = vi.fn(async () => 10);
     const sm = new SessionManager({ agentWindow: aw });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.agentCreatedTabs.add(11);
     const state: FakeState = {
       tabs: new Map([[11, { id: 11, windowId: agentWindowId } as chrome.tabs.Tab]]),
@@ -557,7 +557,7 @@ describe("handleSessionStop window release (issue #57)", () => {
     const aw = fakeAgentWindow([agentWindowId]);
     aw.ensureActiveTab = vi.fn(async () => 10);
     const sm = new SessionManager({ agentWindow: aw });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     // Simulate handleTabCreate adding, then handleTabClose removing.
     ctx.agentCreatedTabs.add(11);
     expect(ctx.agentCreatedTabs.has(11)).toBe(true);
@@ -575,7 +575,7 @@ describe("handleSessionStop window release (issue #57)", () => {
     const aw = fakeAgentWindow([agentWindowId]);
     aw.ensureActiveTab = vi.fn(async () => 10);
     const sm = new SessionManager({ agentWindow: aw });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.agentCreatedTabs.add(11); // Step 4 remove() will throw for this tab
     const state: FakeState = {
       tabs: new Map([

@@ -157,7 +157,11 @@ pub struct TabBorrowResult {
     pub tab_id: i64,
     pub original_window_id: i64,
     pub original_index: i32,
-    pub agent_window_id: i64,
+    /// The session's Agent Window, when the borrow moved the tab into one.
+    /// Absent for in-place borrows and lazily-windowed sessions: the
+    /// window is a materialized-on-demand resource and may never exist.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_window_id: Option<i64>,
     /// True when the tab was attached in place rather than moved into the
     /// Agent Window; `original_window_id`/`original_index` then describe the
     /// tab's own (unchanged) location. Absent on legacy moves so older CLI
@@ -291,7 +295,7 @@ mod tests {
             tab_id: 9,
             original_window_id: 200,
             original_index: 4,
-            agent_window_id: 100,
+            agent_window_id: Some(100),
             in_place: Some(true),
         };
         let v = serde_json::to_value(&r).unwrap();

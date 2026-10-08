@@ -142,7 +142,7 @@ describe.skipIf(!process.env.BSK_CLICK_CHROME)("real browser observation layers"
               ensureActiveTab: async () => 4,
             },
           });
-          const ctx = await manager.start("layers");
+          const ctx = await manager.startWithWindow("layers");
           const tab = { id: 4, windowId: 100, active: true, url } as chrome.tabs.Tab;
           const tabsApi = { get: async () => tab, query: async () => [tab] };
           for (const c of cases) {

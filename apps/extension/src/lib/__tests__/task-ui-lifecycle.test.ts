@@ -32,7 +32,7 @@ async function fixture() {
       ensureActiveTab: async (id) => id,
     },
   });
-  const task = await manager.start("one");
+  const task = await manager.startWithWindow("one");
   task.borrowedTabs.set(5, { tabId: 5, originalWindowId: 500, originalIndex: 0 });
   const tabs = new Map<number, chrome.tabs.Tab>([
     [5, { id: 5, windowId: 10, active: true, title: "fixture" } as chrome.tabs.Tab],
@@ -185,7 +185,7 @@ it.each([
 ])("bounds %s and lets actual multi-session cleanup proceed", async (stage) => {
   vi.useFakeTimers();
   const f = await fixture();
-  await f.manager.start("two");
+  await f.manager.startWithWindow("two");
   f.tabs.set(11, { id: 11, windowId: 11 } as chrome.tabs.Tab);
   const gate = deferred<any>();
   let entered = false;

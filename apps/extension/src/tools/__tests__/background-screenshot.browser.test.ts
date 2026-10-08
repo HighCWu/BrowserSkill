@@ -133,7 +133,7 @@ describe.skipIf(!process.env.BSK_BACKGROUND_CHROME)(
                 ensureActiveTab: async () => 1,
               },
             });
-            const ctx = await manager.start("agent");
+            const ctx = await manager.startWithWindow("agent");
             const tabsApi = {
               get: async (id: number) =>
                 ({ id, windowId: 100, active: false, url }) as chrome.tabs.Tab,

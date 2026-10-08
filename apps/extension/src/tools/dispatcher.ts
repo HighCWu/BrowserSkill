@@ -489,7 +489,10 @@ export class ToolDispatcher {
           cdp: this.cdp,
         });
         if (!isRpcError(result)) {
-          this.onAgentTabClaimed?.(result.tab_id, result.agent_window_id);
+          // Window-less (in-place) borrows carry no agent window to claim.
+          if (result.agent_window_id !== undefined) {
+            this.onAgentTabClaimed?.(result.tab_id, result.agent_window_id);
+          }
         }
         return result;
       }

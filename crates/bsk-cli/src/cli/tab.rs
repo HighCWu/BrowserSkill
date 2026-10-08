@@ -239,7 +239,7 @@ fn run_borrow(sock: PathBuf, args: TabBorrowArgs, format: Format) -> Result<(), 
         } else {
             println!(
                 "borrowed tab_id={} from window={} index={} → agent_window={}",
-                reply.tab_id, reply.original_window_id, reply.original_index, reply.agent_window_id
+                reply.tab_id, reply.original_window_id, reply.original_index, reply.agent_window_id.map(|w| w.to_string()).unwrap_or_else(|| "-".into())
             );
         }
     })

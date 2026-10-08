@@ -77,7 +77,7 @@ describe.skipIf(!process.env.BSK_CLICK_CHROME)("DOM native click sequences", () 
   it("DOM double click delivers both click events, as a native double click does", async () => {
     await browser(async (_send, cdp) => {
       const sessions = manager();
-      const ctx = await sessions.start("double-click-audit");
+      const ctx = await sessions.startWithWindow("double-click-audit");
       await cdp.send(7, "Runtime.evaluate", {
         expression: `
         document.body.innerHTML = '<button id="target" style="width:200px;height:100px">Open</button>';

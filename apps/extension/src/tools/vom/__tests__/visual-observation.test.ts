@@ -466,7 +466,7 @@ it("observe discovers and registers visual refs from its single production captu
       ensureActiveTab: async () => 4,
     },
   });
-  const ctx = await manager.start("test");
+  const ctx = await manager.startWithWindow("test");
   const send = vi.fn(async (_tab: number, method: string, params: Record<string, unknown> = {}) => {
     if (method === "Page.getLayoutMetrics")
       return {
@@ -709,7 +709,7 @@ it.each([
       ensureActiveTab: async () => 4,
     },
   });
-  const ctx = await manager.start("cancel-test");
+  const ctx = await manager.startWithWindow("cancel-test");
   const first = success(await publishObservationPage(ctx.refStore, f.cdp, 4, { output: f.output }));
   const originalRefs = [...ctx.refStore.entries()];
   const revision = ctx.refStore.revision;
@@ -874,7 +874,7 @@ it("preserves DOM labels for audit on the first and continuation pages", async (
       ensureActiveTab: async () => 4,
     },
   });
-  const ctx = await manager.start("audit-test");
+  const ctx = await manager.startWithWindow("audit-test");
   ctx.agentCreatedTabs.add(4);
   const originalChrome = globalThis.chrome;
   vi.stubGlobal("chrome", {

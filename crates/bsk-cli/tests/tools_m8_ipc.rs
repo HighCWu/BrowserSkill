@@ -359,7 +359,7 @@ async fn tab_borrow_round_trips_original_position() {
                 tab_id: p.tab_id,
                 original_window_id: 200,
                 original_index: 4,
-                agent_window_id: 100,
+                agent_window_id: Some(100),
                 in_place: p.in_place,
             })
             .unwrap(),
@@ -382,7 +382,7 @@ async fn tab_borrow_round_trips_original_position() {
     .expect("tab_borrow ok");
     assert_eq!(result.original_window_id, 200);
     assert_eq!(result.original_index, 4);
-    assert_eq!(result.agent_window_id, 100);
+    assert_eq!(result.agent_window_id, Some(100));
     assert_eq!(result.in_place, Some(true));
     handle.shutdown().await;
 }
