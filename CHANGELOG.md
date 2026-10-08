@@ -34,6 +34,13 @@ Starting from 0.2.0, CLI / Extension / DSH Plugin share the same version number.
 
 ### Fixed
 
+- Overlay state resolves control for in-place borrows pushed by tab id only:
+  `pushAllAgentOverlayStates` sends these tabs no window id, and the old
+  both-args guard in `overlayStateForTab` turned that into a `hidden` push —
+  every global re-push (handshake verdict flip, session start/stop) made a
+  still-controlled in-place tab unmount its cursor indicator until the next
+  cursor message re-synced it. The in-place lookup now needs only the tab id;
+  the window-scoped claim still wins when a window id is present.
 - Click `--glide` now passes the visual-cursor notifier into the shared glide
   helper (hover already did): the on-page indicator glides through every
   trajectory point of a click approach instead of teleporting to the landing
