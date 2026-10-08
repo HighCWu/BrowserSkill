@@ -7,6 +7,16 @@ Starting from 0.2.0, CLI / Extension / DSH Plugin share the same version number.
 
 ## [Unreleased]
 
+### Changed
+
+- Lazy Agent Window: `session_start` no longer opens a dedicated window with
+  a blank home tab. The window materializes on first need — `tab_create`, a
+  legacy (moving) `tab_borrow`, `window_resize`, `record_start` — so in-place
+  borrow workflows run entirely without one. `agent_window_id` is optional in
+  the session-start and tab-borrow results; commands without a pinned tab in
+  a window-less session get a guided `not_found` instead of acting on a
+  random active tab.
+
 ### Added
 
 - In-place borrow mode: `bsk tab borrow <TAB_ID> --in-place` attaches a user
