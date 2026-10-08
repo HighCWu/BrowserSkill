@@ -534,6 +534,23 @@ export async function handleClick(
       clickVisualPoint(ctx, target, params, deps, consumed, input.markSent),
     );
   }
+  if (params.x !== undefined || params.y !== undefined) {
+    if (params.x === undefined || params.y === undefined) {
+      return { code: "invalid_params", message: "click x and y must be provided together" };
+    }
+    if (params.ref !== undefined || params.selector !== undefined || isVisualPointRequest(params)) {
+      return {
+        code: "invalid_params",
+        message: "click x/y cannot be combined with ref/selector/capture",
+      };
+    }
+    const point = await hoverPointInViewport(deps.cdp, target.tabId, params.x, params.y, "click");
+    if (isRpcError(point)) return point;
+    deps.cdp.trackSessionTab?.(ctx.sessionId, target.tabId);
+    return withInputReady(ctx, target.tabId, { ...deps, deadline }, (input) =>
+      clickCoordinate(target, params, point, deps, input.markSent),
+    );
+  }
   const resolved = await resolveActionTarget(deps.cdp, ctx, target, params, "click");
   if (isRpcError(resolved)) return resolved;
   return withInputReady(ctx, target.tabId, { ...deps, deadline }, (input) =>
@@ -600,6 +617,50 @@ export async function clickResolvedTarget(
     tab_id: target.tabId,
     used_ref: resolved.usedRef,
     used_selector: resolved.usedSelector,
+    x: reported.x,
+    y: reported.y,
+  });
+}
+
+/**
+ * Coordinate click: press at an explicit viewport point without
+ * resolving an element. The glide lands exactly on the requested point
+ * (landing scatter only applies when a comfortable element box is
+ * available), so `x`/`y` in the result are the requested coordinates.
+ */
+async function clickCoordinate(
+  target: ResolvedTargetTab,
+  params: Pick<ClickParams, "button" | "click_count" | "modifiers" | "glide">,
+  point: { x: number; y: number },
+  deps: InteractionDeps,
+  markSent?: () => void,
+): Promise<ClickResult | RpcError> {
+  const dialogCursor = markDialogCursor(deps.cdp, target.tabId);
+  if (throwIfAborted(deps.signal)) {
+    return { code: "cancelled", message: "click aborted" };
+  }
+  const clickCount = params.click_count ?? 1;
+  if (!Number.isSafeInteger(clickCount) || clickCount < 1) {
+    return { code: "invalid_params", message: "click_count must be a positive integer" };
+  }
+  const landedOut: { value?: { x: number; y: number } } = {};
+  const error = await withClickOverlay(target.tabId, point, deps, (verifyOverlay) =>
+    dispatchClickAtPoint(
+      target.tabId,
+      point,
+      params,
+      deps,
+      verifyOverlay,
+      undefined,
+      markSent,
+      null,
+      landedOut,
+    ),
+  );
+  if (error) return error;
+  const reported = landedOut.value ?? point;
+  return attachDialogs(deps.cdp, target.tabId, dialogCursor, {
+    tab_id: target.tabId,
     x: reported.x,
     y: reported.y,
   });
@@ -954,9 +1015,10 @@ export async function hoverPointInViewport(
   tabId: number,
   x: number,
   y: number,
+  label = "hover",
 ): Promise<{ x: number; y: number } | RpcError> {
   if (!Number.isFinite(x) || !Number.isFinite(y)) {
-    return { code: "invalid_params", message: "hover x and y must be finite numbers" };
+    return { code: "invalid_params", message: `${label} x and y must be finite numbers` };
   }
   let metrics: {
     cssLayoutViewport?: { clientWidth?: number; clientHeight?: number };
@@ -983,7 +1045,7 @@ export async function hoverPointInViewport(
   if (x < 0 || x >= width || y < 0 || y >= height) {
     return {
       code: "invalid_params",
-      message: `hover point (${x}, ${y}) is outside the ${width}x${height} viewport`,
+      message: `${label} point (${x}, ${y}) is outside the ${width}x${height} viewport`,
     };
   }
   return { x, y };
@@ -1418,24 +1480,77 @@ export async function handleFill(
     }
     // CDP `Input.insertText` handles IME / multi-byte input out of the
     // box, much more reliably than per-key `dispatchKeyEvent`.
+    let trustedInputSeen: boolean | undefined;
     if (params.value !== "") {
       deps.cursor?.key(target.tabId);
+      // Arm a detector for the trusted `input` event that insertText
+      // delivers. Pages that already react to it must not see the
+      // synthetic fallback below: `isTrusted: false` events are an
+      // automation fingerprint real user streams never contain.
+      const armed = await nodeCdp.send<FillScriptReply<unknown>>(
+        target.tabId,
+        "Runtime.callFunctionOn",
+        {
+          objectId,
+          functionDeclaration: `function() {
+            this.__bskFillSeen = false;
+            this.__bskFillH = (event) => { if (event.isTrusted) this.__bskFillSeen = true; };
+            this.addEventListener('input', this.__bskFillH, true);
+          }`,
+          returnByValue: true,
+        },
+      );
+      if (throwIfAborted(deps.signal)) {
+        return { code: "cancelled", message: "fill aborted" };
+      }
+      if (armed.exceptionDetails) {
+        return fillError("fill_failed", "fill input listener script failed");
+      }
       await deps.cdp.send(target.tabId, "Input.insertText", { text: params.value });
+      if (throwIfAborted(deps.signal)) {
+        return { code: "cancelled", message: "fill aborted" };
+      }
+      const probe = await nodeCdp.send<FillScriptReply<boolean>>(
+        target.tabId,
+        "Runtime.callFunctionOn",
+        {
+          objectId,
+          functionDeclaration: `function() {
+            const seen = this.__bskFillSeen === true;
+            if (this.__bskFillH) this.removeEventListener('input', this.__bskFillH, true);
+            delete this.__bskFillSeen;
+            delete this.__bskFillH;
+            return seen;
+          }`,
+          returnByValue: true,
+        },
+      );
+      if (throwIfAborted(deps.signal)) {
+        return { code: "cancelled", message: "fill aborted" };
+      }
+      if (probe.exceptionDetails) {
+        return fillError("fill_failed", "fill input probe script failed");
+      }
+      trustedInputSeen = probe.result?.value === true;
     }
     if (throwIfAborted(deps.signal)) {
       return { code: "cancelled", message: "fill aborted" };
     }
     // Keep the existing notifications, then read in a separate call so
     // nested microtasks queued by the page cannot race the verification.
+    // The synthetic events only fire when the page did not react to the
+    // trusted input event already (or nothing was typed).
     const notified = await nodeCdp.send<FillScriptReply<unknown>>(
       target.tabId,
       "Runtime.callFunctionOn",
       {
         objectId,
-        functionDeclaration: `function() {
+        functionDeclaration: `function(notify) {
+          if (!notify) return;
           this.dispatchEvent(new Event('input', { bubbles: true }));
           this.dispatchEvent(new Event('change', { bubbles: true }));
         }`,
+        arguments: [{ value: trustedInputSeen !== true }],
         returnByValue: true,
       },
     );

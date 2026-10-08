@@ -73,6 +73,15 @@ pub struct ClickParams {
     pub ref_: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub selector: Option<String>,
+    /// Viewport-relative X coordinate (CSS pixels). When both `x` and
+    /// `y` are supplied the click is dispatched at this point without
+    /// resolving an element; both must be given together and neither
+    /// may be combined with `ref`/`selector`/`capture_id`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub x: Option<f64>,
+    /// Viewport-relative Y coordinate (CSS pixels). See `x`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub y: Option<f64>,
     /// Target tab. Defaults to the Agent Window's active tab.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tab_id: Option<i64>,
@@ -471,6 +480,8 @@ mod tests {
             session_id: "abcd".into(),
             ref_: Some("@e3".into()),
             selector: None,
+            x: None,
+            y: None,
             tab_id: Some(42),
             button: Some(MouseButton::Left),
             click_count: Some(1),
@@ -494,6 +505,8 @@ mod tests {
             session_id: "abcd".into(),
             ref_: Some("@e3".into()),
             selector: None,
+            x: None,
+            y: None,
             tab_id: None,
             button: None,
             click_count: None,
@@ -512,6 +525,31 @@ mod tests {
         };
         let v = serde_json::to_value(&plain).unwrap();
         assert!(v.get("glide").is_none());
+    }
+
+    #[test]
+    fn click_params_round_trip_coordinates() {
+        let p = ClickParams {
+            capture_id: None,
+            image_x: None,
+            image_y: None,
+            session_id: "abcd".into(),
+            ref_: None,
+            selector: None,
+            x: Some(512.5),
+            y: Some(384.0),
+            tab_id: None,
+            button: None,
+            click_count: None,
+            modifiers: None,
+            glide: Some(true),
+            timeout_ms: None,
+        };
+        let v = serde_json::to_value(&p).unwrap();
+        assert_eq!(v.get("x"), Some(&serde_json::json!(512.5)));
+        assert_eq!(v.get("y"), Some(&serde_json::json!(384.0)));
+        let round: ClickParams = serde_json::from_value(v).unwrap();
+        assert_eq!(round, p);
     }
 
     #[test]

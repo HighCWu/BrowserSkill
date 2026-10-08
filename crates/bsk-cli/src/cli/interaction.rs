@@ -123,6 +123,15 @@ pub struct ClickArgs {
     #[arg(long = "selector")]
     pub selector: Option<String>,
 
+    /// Viewport-relative X coordinate (CSS pixels). Requires `--y`;
+    /// replaces the positional target (no element is resolved).
+    #[arg(long, requires = "y", conflicts_with_all = ["capture_id", "ref_", "selector"])]
+    pub x: Option<f64>,
+
+    /// Viewport-relative Y coordinate (CSS pixels). Requires `--x`.
+    #[arg(long, requires = "x")]
+    pub y: Option<f64>,
+
     #[arg(long)]
     pub session: String,
 
@@ -156,11 +165,21 @@ pub struct ClickArgs {
 
 pub fn dispatch_click(args: ClickArgs, format: Format) -> Result<(), CliError> {
     let info = ensure_daemon().context("ensure daemon is running")?;
-    let (ref_, selector) = split_target(
-        args.target.clone(),
-        args.ref_.clone(),
-        args.selector.clone(),
-    )?;
+    let coordinate_click = args.x.is_some() || args.y.is_some();
+    let (ref_, selector) = if coordinate_click {
+        if args.target.is_some() {
+            return Err(CliError::Local(anyhow::anyhow!(
+                "pass either a positional target or --x/--y coordinates, not both"
+            )));
+        }
+        (None, None)
+    } else {
+        split_target(
+            args.target.clone(),
+            args.ref_.clone(),
+            args.selector.clone(),
+        )?
+    };
     let modifiers = parse_modifiers(&args.modifiers)
         .map_err(|e| CliError::Local(anyhow::anyhow!("--modifiers: {e}")))?;
     let params = ClickParams {
@@ -170,6 +189,8 @@ pub fn dispatch_click(args: ClickArgs, format: Format) -> Result<(), CliError> {
         session_id: args.session.clone(),
         ref_,
         selector,
+        x: args.x,
+        y: args.y,
         tab_id: args.tab_id,
         button: Some(args.button.into()),
         click_count: Some(args.click_count),

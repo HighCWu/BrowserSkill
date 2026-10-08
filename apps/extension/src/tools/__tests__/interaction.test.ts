@@ -112,6 +112,69 @@ describe("handleClick", () => {
     expect(res).toMatchObject({ code: "invalid_params" });
   });
 
+  it("clicks at explicit viewport coordinates without resolving an element", async () => {
+    const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
+    await sm.start("aa11");
+    const fake = makeFakeCdp({ "Input.dispatchMouseEvent": () => ({}) });
+    const res = await handleClick(
+      sm,
+      { session_id: "aa11", x: 400, y: 300 },
+      { cdp: fake.cdp, tabsApi: fake.tabsApi },
+    );
+    expect(res).toMatchObject({ tab_id: 4, x: 400, y: 300 });
+    if ("code" in res) throw new Error(`unexpected error: ${JSON.stringify(res)}`);
+    expect(res.used_ref).toBeUndefined();
+    expect(res.used_selector).toBeUndefined();
+    const pressed = fake.sent.find(
+      (c) =>
+        c.method === "Input.dispatchMouseEvent" &&
+        (c.params as { type?: string } | undefined)?.type === "mousePressed",
+    );
+    expect(pressed?.params).toMatchObject({ x: 400, y: 300, clickCount: 1 });
+  });
+
+  it("rejects x without y and vice versa", async () => {
+    const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
+    await sm.start("aa11");
+    const fake = makeFakeCdp({});
+    const res = await handleClick(
+      sm,
+      { session_id: "aa11", x: 400 },
+      { cdp: fake.cdp, tabsApi: fake.tabsApi },
+    );
+    expect(res).toMatchObject({ code: "invalid_params", message: /together/ });
+    const res2 = await handleClick(
+      sm,
+      { session_id: "aa11", y: 300 },
+      { cdp: fake.cdp, tabsApi: fake.tabsApi },
+    );
+    expect(res2).toMatchObject({ code: "invalid_params", message: /together/ });
+  });
+
+  it("rejects coordinates combined with ref/selector", async () => {
+    const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
+    await sm.start("aa11");
+    const fake = makeFakeCdp({});
+    const res = await handleClick(
+      sm,
+      { session_id: "aa11", ref: "@e1", x: 400, y: 300 },
+      { cdp: fake.cdp, tabsApi: fake.tabsApi },
+    );
+    expect(res).toMatchObject({ code: "invalid_params", message: /combined/ });
+  });
+
+  it("rejects coordinates outside the viewport", async () => {
+    const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
+    await sm.start("aa11");
+    const fake = makeFakeCdp({});
+    const res = await handleClick(
+      sm,
+      { session_id: "aa11", x: 2000, y: 300 },
+      { cdp: fake.cdp, tabsApi: fake.tabsApi },
+    );
+    expect(res).toMatchObject({ code: "invalid_params", message: /outside the 1280x720 viewport/ });
+  });
+
   it("rejects when both ref AND selector are given", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
     await sm.start("aa11");
@@ -1623,12 +1686,15 @@ describe("handleFocus and handleBlur", () => {
 function successfulFillScript(params: unknown) {
   const script = params as { arguments?: Array<{ value: unknown }>; functionDeclaration: string };
   const args = script.arguments ?? [];
+  const declaration = script.functionDeclaration;
+  if (declaration.includes("__bskFillH = (")) return { result: { value: null } }; // arm listener
+  if (declaration.includes("const seen =")) return { result: { value: true } }; // probe: page reacted
   return {
     result: {
       value:
         args.length === 2
           ? { before: "", expected: args[0].value }
-          : script.functionDeclaration.startsWith("function(expected)")
+          : declaration.startsWith("function(expected)")
             ? { connected: true, matches: true, valueLength: String(args[0].value).length }
             : "ready",
     },
@@ -1696,9 +1762,88 @@ describe("handleFill", () => {
     expect(res.used_ref).toBe("e1");
     const insert = fake.sent.find((c) => c.method === "Input.insertText");
     expect(insert?.params).toEqual({ text: "hello" });
-    // Foreground replacement needs no extra caret-positioning round trip.
+    // Foreground replacement needs no extra caret-positioning round trip:
+    // prepare → readiness → arm → probe → notify → verify.
     const callFns = fake.sent.filter((c) => c.method === "Runtime.callFunctionOn");
-    expect(callFns).toHaveLength(4);
+    expect(callFns).toHaveLength(6);
+  });
+
+  it("skips the synthetic input/change fallback when the page reacted to the trusted event", async () => {
+    const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
+    const ctx = await sm.start("aa11");
+    ctx.refStore.set("e1", 555, { tabId: 4 });
+    const notifyArgs: unknown[] = [];
+    const fake = makeFakeCdp({
+      "DOM.describeNode": () => ({
+        node: { backendNodeId: 555, nodeName: "INPUT", attributes: ["type", "text"] },
+      }),
+      "DOM.scrollIntoViewIfNeeded": () => ({}),
+      "DOM.focus": () => ({}),
+      "DOM.resolveNode": () => ({ object: { objectId: "obj-1" } }),
+      "Runtime.callFunctionOn": (p) => {
+        const script = p as { arguments?: Array<{ value: unknown }>; functionDeclaration: string };
+        if (script.functionDeclaration.includes("if (!notify)")) {
+          notifyArgs.push(script.arguments?.[0]?.value);
+          return { result: { value: null } };
+        }
+        if (script.functionDeclaration.includes("const seen =")) {
+          return { result: { value: true } };
+        }
+        if (script.functionDeclaration.includes("__bskFillH = (")) {
+          return { result: { value: null } };
+        }
+        return successfulFillScript(p);
+      },
+      "Runtime.releaseObject": () => ({}),
+      "Input.insertText": () => ({}),
+    });
+    const res = await handleFill(
+      sm,
+      { session_id: "aa11", ref: "e1", value: "hello" },
+      { cdp: fake.cdp, tabsApi: fake.tabsApi },
+    );
+    if ("code" in res) throw new Error(`unexpected error: ${JSON.stringify(res)}`);
+    expect(res.value_length).toBe(5);
+    expect(notifyArgs).toEqual([false]);
+  });
+
+  it("falls back to synthetic input/change when the page did not react", async () => {
+    const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
+    const ctx = await sm.start("aa11");
+    ctx.refStore.set("e1", 555, { tabId: 4 });
+    const notifyArgs: unknown[] = [];
+    const fake = makeFakeCdp({
+      "DOM.describeNode": () => ({
+        node: { backendNodeId: 555, nodeName: "INPUT", attributes: ["type", "text"] },
+      }),
+      "DOM.scrollIntoViewIfNeeded": () => ({}),
+      "DOM.focus": () => ({}),
+      "DOM.resolveNode": () => ({ object: { objectId: "obj-1" } }),
+      "Runtime.callFunctionOn": (p) => {
+        const script = p as { arguments?: Array<{ value: unknown }>; functionDeclaration: string };
+        if (script.functionDeclaration.includes("if (!notify)")) {
+          notifyArgs.push(script.arguments?.[0]?.value);
+          return { result: { value: null } };
+        }
+        if (script.functionDeclaration.includes("const seen =")) {
+          return { result: { value: false } };
+        }
+        if (script.functionDeclaration.includes("__bskFillH = (")) {
+          return { result: { value: null } };
+        }
+        return successfulFillScript(p);
+      },
+      "Runtime.releaseObject": () => ({}),
+      "Input.insertText": () => ({}),
+    });
+    const res = await handleFill(
+      sm,
+      { session_id: "aa11", ref: "e1", value: "hello" },
+      { cdp: fake.cdp, tabsApi: fake.tabsApi },
+    );
+    if ("code" in res) throw new Error(`unexpected error: ${JSON.stringify(res)}`);
+    expect(res.value_length).toBe(5);
+    expect(notifyArgs).toEqual([true]);
   });
 
   it("passes clear_before=false to preparation and verifies the result", async () => {

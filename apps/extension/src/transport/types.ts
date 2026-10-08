@@ -530,6 +530,10 @@ export interface ClickParams {
   session_id: string;
   ref?: string;
   selector?: string;
+  /** Viewport-relative X (CSS pixels); both x and y must be given together, exclusive with ref/selector/capture_id. */
+  x?: number;
+  /** Viewport-relative Y (CSS pixels). See x. */
+  y?: number;
   tab_id?: number;
   button?: MouseButton;
   click_count?: number;
