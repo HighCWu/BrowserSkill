@@ -190,11 +190,18 @@ export default defineBackground(() => {
    * `tab_create`, `tab_borrow`, or popup observation receive the control overlay.
    */
   function overlayStateForTab(tabId?: number, windowId?: number): OverlayAgentStateMessage {
-    if (typeof tabId === "number" && typeof windowId === "number") {
-      const ctx = sessions.findByWindowId(windowId);
-      if (ctx && isAgentControlledTab(ctx, tabId)) return overlayStateForWindow(windowId);
+    if (typeof tabId === "number") {
+      // Window-scoped claim wins: a tab living inside a session's Agent
+      // Window belongs to that session's overlay.
+      if (typeof windowId === "number") {
+        const ctx = sessions.findByWindowId(windowId);
+        if (ctx && isAgentControlledTab(ctx, tabId)) return overlayStateForWindow(windowId);
+      }
       // In-place borrows live in their own window; the control overlay (the
-      // operator's window into what the agent is doing) still applies to them.
+      // operator's window into what the agent is doing) still applies to
+      // them. This lookup needs only the tab id: global re-pushes
+      // (`pushAllAgentOverlayStates`) carry no window id for these tabs and
+      // must still resolve control instead of falling through to hidden.
       const host = sessions.list().find((c) => isInPlaceBorrowedTab(c, tabId));
       if (host) {
         return {
