@@ -321,7 +321,7 @@ describe("fill result verification", () => {
     const result = await h.fill();
     expect(result).toMatchObject({ code: "cdp_failed", data: { reason: "fill_failed" } });
     expect(JSON.stringify(result)).not.toContain("page secret");
-    if (phase <= 3) expect(h.insert).not.toHaveBeenCalled();
+    if (phase <= 4) expect(h.insert).not.toHaveBeenCalled();
     expect(h.release).toHaveBeenCalledOnce();
   });
 
@@ -339,7 +339,7 @@ describe("fill result verification", () => {
       ++count === phase ? { result: { type: "undefined" } } : run(params),
     );
     expect(await h.fill()).toMatchObject({ code: "cdp_failed" });
-    if (phase <= 3) expect(h.insert).not.toHaveBeenCalled();
+    if (phase <= 4) expect(h.insert).not.toHaveBeenCalled();
   });
 
   it.each(["input", "change"])("checks state after nested microtasks from %s", async (event) => {
@@ -399,6 +399,7 @@ describe("fill result verification", () => {
       h.element.value = normalized;
     });
     expect(await h.fill(requested)).toMatchObject({ value_length: normalized.length });
+    expect(h.insert).toHaveBeenCalledWith(requested.replace(/\r\n?/g, "\n"));
   });
 
   it("does not count an editable padding break as an extra typed character", async () => {

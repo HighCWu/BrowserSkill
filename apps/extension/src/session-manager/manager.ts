@@ -37,6 +37,8 @@ export interface SessionContext {
    * so the window-based fallback cannot find it.
    */
   defaultTabId?: number;
+  /** Unclassified arrivals and failed external moves must not become implicit tool targets. */
+  pendingRoutingTabs?: Set<number>;
   createdAtMs: number;
 }
 
@@ -81,7 +83,7 @@ export interface SessionManagerOptions {
 export interface SessionStartOptions {
   /** Optional Agent Window outer size in CSS pixels. */
   size?: { width: number; height: number };
-  /** Defaults to true so existing clients keep visible Agent Windows. */
+  /** Background by default; true explicitly opens the window in front. */
   focused?: boolean;
   /** Cancellation for the transactional Agent Window startup sequence. */
   signal?: AbortSignal;

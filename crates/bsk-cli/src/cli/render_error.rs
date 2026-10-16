@@ -71,6 +71,7 @@ pub mod reason {
     pub const FILE_DROP_TARGET_UNAVAILABLE: &str = "file_drop_target_unavailable";
     pub const FILE_DROP_FAILED: &str = "file_drop_failed";
     pub const DOWNLOAD_CAPTURE_FAILED: &str = "download_capture_failed";
+    pub const DOWNLOAD_PATH_MISMATCH: &str = "download_path_mismatch";
     pub const TRANSFER_OUTCOME_UNKNOWN: &str = "transfer_outcome_unknown";
     pub const TRANSFER_TIMEOUT: &str = "transfer_timeout";
     pub const SESSION_BUSY: &str = crate::rpc_reason::SESSION_BUSY;
@@ -391,7 +392,7 @@ pub fn info_for_error(code: ErrorCode, data: Option<&serde_json::Value>) -> Rend
         (ErrorCode::InvalidParams, reason::TARGET_NOT_FILLABLE) => RenderInfo {
             summary: "target element is not fillable",
             hint: Some(
-                "observe the page and choose an enabled, editable text input, textarea, or contenteditable; use the appropriate interaction for other control types",
+                "observe the page and choose an enabled, editable text input, textarea, or contenteditable editor root; internal paragraphs and spans are not fill targets",
             ),
             exit_code: base.exit_code,
         },
@@ -567,6 +568,13 @@ pub fn info_for_error(code: ErrorCode, data: Option<&serde_json::Value>) -> Rend
             summary: "the browser download could not be attributed or completed",
             hint: Some(
                 "do not retry blindly; the target browser may not expose a reliable download intent signal",
+            ),
+            exit_code: base.exit_code,
+        },
+        (ErrorCode::CdpFailed, reason::DOWNLOAD_PATH_MISMATCH) => RenderInfo {
+            summary: "the browser did not use the requested download directory",
+            hint: Some(
+                "find the saved file in the browser's Downloads list; check for a competing rename, a browser-rejected filename, or a different save location before retrying",
             ),
             exit_code: base.exit_code,
         },
@@ -837,6 +845,15 @@ mod tests {
         let download = serde_json::json!({ "reason": reason::DOWNLOAD_CAPTURE_FAILED });
         let info = info_for_error(ErrorCode::CdpFailed, Some(&download));
         assert!(info.summary.contains("download could not be attributed"));
+
+        let path_mismatch = serde_json::json!({
+            "reason": reason::DOWNLOAD_PATH_MISMATCH,
+            "effect_state": "committed",
+            "phase": "download"
+        });
+        let info = info_for_error(ErrorCode::CdpFailed, Some(&path_mismatch));
+        assert!(info.summary.contains("requested download directory"));
+        assert!(info.hint.unwrap().contains("browser-rejected filename"));
 
         let unknown = serde_json::json!({ "reason": reason::TRANSFER_OUTCOME_UNKNOWN });
         let info = info_for_error(ErrorCode::ProtocolError, Some(&unknown));
