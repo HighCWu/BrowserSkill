@@ -1052,7 +1052,15 @@ fn spawn_update_check_task(
                 }
                 update::AutoUpdateOutcome::Disabled { latest } => info!(
                     %latest,
-                    "periodic update check found a new version; auto-update off, CLI hint only"
+                    "periodic update check found a new version; auto-update off ({}), CLI hint only",
+                    if update::custom_manifest_configured() {
+                        format!("{}=off", update::AUTO_UPDATE_ENV)
+                    } else {
+                        format!(
+                            "no custom update source configured; set {} to enable auto-upgrade",
+                            update::MANIFEST_URL_ENV
+                        )
+                    }
                 ),
                 update::AutoUpdateOutcome::HostManaged { latest } => {
                     let reason = update::state::SkipReason::HostManaged;
