@@ -326,11 +326,11 @@ describe("fill result verification", () => {
   });
 
   // Script call order with a non-empty value and background focus:
-  // 1 preparation, 2+3 readiness (before/after caret move), 4 trusted-input
-  // arm, 5 trusted-input probe (a missing probe result is tolerated — the
-  // synthetic fallback plus final verification own the outcome), 6
-  // notification, 7 verification.
-  it.each([1, 2, 3, 7])("rejects missing results at phase %s", async (phase) => {
+  // 1+2 preparation (preflight, prepared), 3+4 readiness (before/after
+  // caret move), 5 trusted-input arm, 6 trusted-input probe (a missing
+  // probe result is tolerated — the synthetic fallback plus final
+  // verification own the outcome), 7 notification, 8 verification.
+  it.each([1, 2, 3, 4, 8])("rejects missing results at phase %s", async (phase) => {
     const h = await setup();
     vi.spyOn(document, "hasFocus").mockReturnValue(false);
     const run = h.script.getMockImplementation()!;
@@ -544,9 +544,9 @@ describe("fill result verification", () => {
     const controller = new AbortController();
     h.insert.mockImplementation(async () => controller.abort());
     expect(await h.fill("hello", true, controller.signal)).toMatchObject({ code: "cancelled" });
-    // Preparation + readiness + the trusted-input arm that must precede
-    // insertText; the abort lands before probe/notification/verification.
-    expect(h.script).toHaveBeenCalledTimes(3);
+    // Preflight + prepared + readiness + the trusted-input arm that must
+    // precede insertText; the abort lands before probe/notification/verify.
+    expect(h.script).toHaveBeenCalledTimes(4);
     expect(h.release).toHaveBeenCalledOnce();
   });
 

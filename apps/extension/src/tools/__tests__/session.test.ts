@@ -410,7 +410,7 @@ describe("handleSessionStop browser compatibility (issue #272)", () => {
     const aw = fakeAgentWindow([100]);
     aw.ensureActiveTab = vi.fn(async () => tabIds[0]);
     const manager = new SessionManager({ agentWindow: aw });
-    const ctx = await manager.start("aa11");
+    const ctx = await manager.startWithWindow("aa11");
     for (const id of tabIds) ctx.agentCreatedTabs.add(id);
     const state: FakeState = {
       tabs: new Map(

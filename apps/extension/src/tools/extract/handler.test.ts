@@ -12,7 +12,7 @@ async function setup() {
       ensureActiveTab: vi.fn(async () => 7),
     },
   });
-  await manager.start("s1");
+  await manager.startWithWindow("s1");
   const tab = {
     id: 7,
     windowId: 100,
@@ -88,7 +88,7 @@ describe("extraction lifecycle", () => {
   it("binds handles to the exact session and tab", async () => {
     const h = await setup();
     const target = await h.discover();
-    await h.manager.start("s2");
+    await h.manager.startWithWindow("s2");
     expect(await h.run({ session_id: "s2", action: "table", target_id: target })).toMatchObject({
       code: "not_found",
       data: { reason: "extract_target_stale" },

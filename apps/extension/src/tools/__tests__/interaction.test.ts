@@ -1762,9 +1762,9 @@ describe("handleFill", () => {
     const insert = fake.sent.find((c) => c.method === "Input.insertText");
     expect(insert?.params).toEqual({ text: "hello" });
     // Foreground replacement needs no extra caret-positioning round trip:
-    // prepare → readiness → arm → probe → notify → verify.
+    // preflight → prepared → readiness → arm → probe → notify → verify.
     const callFns = fake.sent.filter((c) => c.method === "Runtime.callFunctionOn");
-    expect(callFns).toHaveLength(6);
+    expect(callFns).toHaveLength(7);
   });
 
   it("skips the synthetic input/change fallback when the page reacted to the trusted event", async () => {

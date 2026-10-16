@@ -91,7 +91,7 @@ function makeFakeCdp(
 /** A session whose `@e1` ref points at backendNodeId 555 on tab 4. */
 async function sessionWithRef() {
   const manager = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-  const ctx = await manager.start("aa11");
+  const ctx = await manager.startWithWindow("aa11");
   ctx.refStore.set("e1", 555, { tabId: 4 });
   return manager;
 }

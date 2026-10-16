@@ -397,7 +397,7 @@ describe("handleTabClose browser compatibility (issue #272)", () => {
     const agentWindow = fakeAgentWindow([100]);
     agentWindow.ensureActiveTab = vi.fn(async () => 5);
     const manager = new SessionManager({ agentWindow });
-    const ctx = await manager.start("aa11");
+    const ctx = await manager.startWithWindow("aa11");
     const state: FakeTabState = {
       tabs: new Map(tabIds.map((id) => [id, { id, windowId: 100 } as chrome.tabs.Tab])),
       nextTabId: 50,

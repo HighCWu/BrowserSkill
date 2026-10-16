@@ -38,7 +38,7 @@ async function fixture() {
     remove: async () => {},
   };
   const manager = new SessionManager({ agentWindow });
-  const task = await manager.start("agent");
+  const task = await manager.startWithWindow("agent");
   let nextWindow = 20;
   const api = {
     tabs: {
@@ -252,7 +252,7 @@ describe("Agent Window routing", () => {
   it("excludes other task windows and incompatible private windows", async () => {
     const f = await fixture();
     f.agentWindow.create.mockResolvedValueOnce({ windowId: 11, initialTabIds: [110] });
-    await f.manager.start("other");
+    await f.manager.startWithWindow("other");
     f.windows.set(11, { ...f.windows.get(10)!, id: 11 });
     f.windows.delete(1);
     f.windows.get(2)!.incognito = true;

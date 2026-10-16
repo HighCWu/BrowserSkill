@@ -167,6 +167,8 @@ it("global re-pushes resolve control for in-place borrows pushed by tab id only"
     sessionId: "one",
     mode: "control",
   });
+});
+
 it("accepts an absent video listener but preserves real overlay replies and errors", async () => {
   const f = await fixture();
   const video = vi.mocked(VideoManager).mock.calls.at(-1)![0];

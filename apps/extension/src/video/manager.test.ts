@@ -35,7 +35,7 @@ async function setup() {
       remove: async () => {},
     },
   });
-  await sessions.start("task");
+  await sessions.startWithWindow("task");
   const tab = {
     id: 7,
     windowId: 10,
