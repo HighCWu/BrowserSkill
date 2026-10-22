@@ -6,6 +6,8 @@ import { DebugManager } from "@/debug/manager";
 import { getAuditEnabled } from "@/lib/audit";
 import { attachAuditBridge } from "@/lib/audit-bridge";
 import { ConnectionController } from "@/lib/connection-controller";
+import { setCursorOverlayEnabled } from "@/lib/cursor-notify";
+import { writeCursorOverlayVerdict } from "@/lib/cursor-verdict";
 import { watchDaemonConnection } from "@/lib/daemon-connection-preference";
 import { startHeartbeat } from "@/lib/heartbeat";
 import {
@@ -36,7 +38,11 @@ import { attachUiChannel } from "@/lib/ui-channel";
 import { attachLongScreenshot } from "@/long-screenshot/background";
 import { createDisconnectCleanup } from "@/session-manager/disconnect-cleanup";
 import { attachSessionEventHandler } from "@/session-manager/event-handler";
-import { isAgentControlledTab, SessionManager } from "@/session-manager/manager";
+import {
+  isAgentControlledTab,
+  isInPlaceBorrowedTab,
+  SessionManager,
+} from "@/session-manager/manager";
 import { AgentWindowRouting } from "@/session-manager/window-routing";
 import {
   attachBorrowNotificationButtonHandler,
@@ -104,6 +110,22 @@ export default defineBackground(() => {
       const session = sessions.findByWindowId(tab.windowId);
       return session !== null && (!session.remote || isAgentControlledTab(session, tabId));
     },
+  });
+  // Console capture is daemon-opted-in: apply the handshake verdict on
+  // every (re)connect. Absent/false keeps `Runtime.enable` off attach.
+  // The visual pointer indicator follows the same channel with the opposite
+  // default (on); its verdict is additionally persisted to
+  // `chrome.storage.session` so content scripts can read it even in the
+  // window between an SW restart and the next handshake, and a change
+  // re-pushes overlay state so mounted indicators appear/disappear at once.
+  controller.subscribe((snap) => {
+    if (!snap.handshake) return;
+    cdp.setConsoleCapture(snap.handshake.console_capture === true);
+    const cursorEnabled = snap.handshake.cursor_overlay === true;
+    writeCursorOverlayVerdict(cursorEnabled);
+    if (setCursorOverlayEnabled(cursorEnabled) && sessions.list().length > 0) {
+      pushAllAgentOverlayStates();
+    }
   });
   const debug = new DebugManager(sessions, cdp, chrome.tabs, Date.now, new LocalDebugArchive());
   attachDebugBridge(sessions, debug);
@@ -207,7 +229,11 @@ export default defineBackground(() => {
     if (controlModes.get(sessionId) === mode) return;
     controlModes.set(sessionId, mode);
     const ctx = sessions.get(sessionId);
-    if (ctx) void pushOverlayStateForWindow(ctx.agentWindowId);
+    if (!ctx) return;
+    // Window-less sessions (in-place workflow) have no Agent Window loop to
+    // piggyback on; the global re-push covers their in-place tabs.
+    if (ctx.agentWindowId === undefined) void pushAllAgentOverlayStates();
+    else void pushOverlayStateForWindow(ctx.agentWindowId);
   }
 
   function overlayStateForWindow(windowId?: number): OverlayAgentStateMessage {
@@ -234,9 +260,27 @@ export default defineBackground(() => {
    * `tab_create`, `tab_borrow`, or popup observation receive the control overlay.
    */
   function overlayStateForTab(tabId?: number, windowId?: number): OverlayAgentStateMessage {
-    if (typeof tabId === "number" && typeof windowId === "number") {
-      const ctx = sessions.findByWindowId(windowId);
-      if (ctx && isAgentControlledTab(ctx, tabId)) return overlayStateForWindow(windowId);
+    if (typeof tabId === "number") {
+      // Window-scoped claim wins: a tab living inside a session's Agent
+      // Window belongs to that session's overlay.
+      if (typeof windowId === "number") {
+        const ctx = sessions.findByWindowId(windowId);
+        if (ctx && isAgentControlledTab(ctx, tabId)) return overlayStateForWindow(windowId);
+      }
+      // In-place borrows live in their own window; the control overlay (the
+      // operator's window into what the agent is doing) still applies to
+      // them. This lookup needs only the tab id: global re-pushes
+      // (`pushAllAgentOverlayStates`) carry no window id for these tabs and
+      // must still resolve control instead of falling through to hidden.
+      const host = sessions.list().find((c) => isInPlaceBorrowedTab(c, tabId));
+      if (host) {
+        return {
+          type: OVERLAY_AGENT_STATE,
+          sessionId: host.sessionId,
+          mode: controlModes.get(host.sessionId) ?? "control",
+          ...nextOverlayVersion(),
+        };
+      }
     }
     return {
       type: OVERLAY_AGENT_STATE,
@@ -273,9 +317,20 @@ export default defineBackground(() => {
   }
 
   function pushAllAgentOverlayStates(): void {
-    const windowIds = new Set(sessions.list().map((ctx) => ctx.agentWindowId));
+    const windowIds = new Set(
+      sessions
+        .list()
+        .map((ctx) => ctx.agentWindowId)
+        .filter((id): id is number => id !== undefined),
+    );
     for (const windowId of windowIds) {
       void pushOverlayStateForWindow(windowId);
+    }
+    // In-place borrows sit in user windows the loop above never touches.
+    for (const ctx of sessions.list()) {
+      for (const [tabId, borrow] of ctx.borrowedTabs) {
+        if (borrow.inPlace) void pushOverlayStateForTab(tabId);
+      }
     }
   }
 
@@ -542,9 +597,13 @@ export default defineBackground(() => {
 
     if (msg.kind === OVERLAY_MSG_READY) {
       // Resolve from explicit tab ownership before sending so free tabs never
-      // flash the control mask.
+      // flash the control mask. The state is both pushed (other listeners,
+      // React overlay) and returned synchronously (race-free for the
+      // requester — an indicator that loads between pushes mounts now).
       if (typeof sender.tab?.id === "number") {
-        void pushOverlayStateForTab(sender.tab.id, sender.tab.windowId);
+        const state = overlayStateForTab(sender.tab.id, sender.tab.windowId);
+        void pushOverlayStateToTab(sender.tab.id, state);
+        sendResponse(state);
       }
       return false;
     }

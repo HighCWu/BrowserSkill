@@ -15,6 +15,7 @@ import { isAbortError } from "./vom/capture-abort";
 
 import { ChromiumCdp } from "@/browser-driver/chromium-cdp";
 import type { CdpTarget } from "@/browser-driver/frame-graph";
+import { type CursorVisualNotifier, TELEPORT_TWEEN_MS } from "@/lib/cursor-notify";
 import type { SessionContext, SessionManager } from "@/session-manager/manager";
 import type {
   BlurParams,
@@ -38,8 +39,9 @@ import type {
 import { type ClickOverlayDeps, withClickOverlay } from "./click-overlay";
 import { attachDialogs, markDialogCursor } from "./dialogs";
 import { backendNodeToObject } from "./element-geometry";
-import { rpcError } from "./errors";
+import { cdpError, rpcError } from "./errors";
 import { resolveNodeGeometry, scrollElementAndFramesIntoView } from "./frame-geometry";
+import { probeInteractiveAt } from "./page-probe";
 import {
   type CdpRunner,
   type ChromeTabsApi,
@@ -52,6 +54,8 @@ import {
   resolveTargetTab,
 } from "./shared";
 import { resolveSnapshotRef } from "./snapshot-ref";
+import { dispatchTrajectory, glideStart } from "./trajectory";
+import { planBehaviorTrajectory } from "./trajectory-behavior";
 
 export interface InteractionDeps extends ClickOverlayDeps {
   /** Arm short popup observation immediately before native input dispatch. */
@@ -60,6 +64,11 @@ export interface InteractionDeps extends ClickOverlayDeps {
   defaultTimeoutMs?: number;
   /** Keep hover hit-testing active for the caller's next observation/action. */
   keepOverlayBypassAfterHover?: boolean;
+  /**
+   * Visual pointer indicator notifier (no-op unless the daemon enabled the
+   * overlay). Input dispatch sites call it so a human can follow along.
+   */
+  cursor?: CursorVisualNotifier;
 }
 
 export interface ResolvedActionTarget {
@@ -115,6 +124,55 @@ function throwIfAborted(signal: AbortSignal | undefined): RpcError | null {
     return { code: "cancelled", message: "interaction aborted" };
   }
   return null;
+}
+
+/**
+ * Glide the pointer to `point` along the v2 behaviour trajectory
+ * instead of snapping there in one event: a main pulse with hesitation,
+ * en-route inspection of interactive elements the path crosses, and —
+ * for clicks — a brake into the landing with a settle pause. Starts
+ * from the tab's last dispatched pointer position (or the viewport
+ * centre) and records every dispatched position so consecutive moves
+ * read as one continuous hand. Returns the landing the plan chose
+ * (pre-click landing scatter can stop a few pixels off the box centre).
+ */
+interface GlideOptions {
+  /** Click approach: brake into the landing and settle before the press. */
+  dwell?: boolean;
+  /** Destination element box; enables inspection stops and landing scatter. */
+  box?: { x: number; y: number; width: number; height: number } | null;
+  /** Visual pointer indicator; no-op unless the daemon enabled the overlay. */
+  cursor?: CursorVisualNotifier;
+}
+
+async function glideToPoint(
+  cdp: CdpRunner,
+  tabId: number,
+  point: { x: number; y: number },
+  signal: AbortSignal | undefined,
+  modifiers: number,
+  options: GlideOptions = {},
+): Promise<{ x: number; y: number }> {
+  const start = await glideStart(cdp, tabId);
+  if (!start) throw new Error("Page.getLayoutMetrics returned no viewport size");
+  const plan = await planBehaviorTrajectory({
+    from: start,
+    to: point,
+    targetBox: options.box ?? null,
+    probe: (x, y) => probeInteractiveAt(cdp, tabId, x, y),
+    dwell: options.dwell ?? false,
+    rng: Math.random,
+  });
+  await dispatchTrajectory(cdp, tabId, plan.points, {
+    signal,
+    modifiers,
+    remember: (p) => cdp.rememberMousePos?.(tabId, p.x, p.y),
+    notify: (p) => options.cursor?.move(tabId, p.x, p.y),
+  });
+  // One short, capped wait so the indicator's glide finishes before the
+  // caller presses anything. Resolves immediately when the overlay is off.
+  await options.cursor?.settle(tabId, plan.landed.x, plan.landed.y);
+  return plan.landed;
 }
 
 function isAbortLikeError(err: unknown): boolean {
@@ -463,11 +521,34 @@ export async function handleClick(
   if (isRpcError(target)) return target;
   const denied = enforceAgentWindow(ctx, target, "click");
   if (denied) return denied;
+  if (params.glide && isVisualPointRequest(params)) {
+    return {
+      code: "invalid_params",
+      message: "click glide cannot be combined with a visual capture",
+    };
+  }
   if (isVisualPointRequest(params)) {
     const consumed = consumeVisualCapture(ctx.refStore, target.tabId, params);
     if (isRpcError(consumed)) return consumed;
     return withInputReady(ctx, target.tabId, { ...deps, deadline }, (input) =>
       clickVisualPoint(ctx, target, params, deps, consumed, input.markSent),
+    );
+  }
+  if (params.x !== undefined || params.y !== undefined) {
+    if (params.x === undefined || params.y === undefined) {
+      return { code: "invalid_params", message: "click x and y must be provided together" };
+    }
+    if (params.ref !== undefined || params.selector !== undefined || isVisualPointRequest(params)) {
+      return {
+        code: "invalid_params",
+        message: "click x/y cannot be combined with ref/selector/capture",
+      };
+    }
+    const point = await hoverPointInViewport(deps.cdp, target.tabId, params.x, params.y, "click");
+    if (isRpcError(point)) return point;
+    deps.cdp.trackSessionTab?.(ctx.sessionId, target.tabId);
+    return withInputReady(ctx, target.tabId, { ...deps, deadline }, (input) =>
+      clickCoordinate(target, params, point, deps, input.markSent),
     );
   }
   const resolved = await resolveActionTarget(deps.cdp, ctx, target, params, "click");
@@ -480,7 +561,7 @@ export async function handleClick(
 export async function clickResolvedTarget(
   ctx: SessionContext,
   resolved: ResolvedActionTarget,
-  params: Pick<ClickParams, "button" | "click_count" | "modifiers">,
+  params: Pick<ClickParams, "button" | "click_count" | "modifiers" | "glide">,
   deps: InteractionDeps,
   markSent?: () => void,
 ): Promise<ClickResult | RpcError> {
@@ -513,17 +594,75 @@ export async function clickResolvedTarget(
   if (!Number.isSafeInteger(clickCount) || clickCount < 1) {
     return { code: "invalid_params", message: "click_count must be a positive integer" };
   }
+  // A glided click may re-land a few pixels off the resolved centre
+  // (landing scatter); report where the press actually happened.
+  const landedOut: { value?: { x: number; y: number } } = {};
   const error = await withClickOverlay(target.tabId, centre, deps, (verifyOverlay) =>
-    dispatchClickAtPoint(target.tabId, centre, params, deps, verifyOverlay, undefined, markSent),
+    dispatchClickAtPoint(
+      target.tabId,
+      centre,
+      params,
+      deps,
+      verifyOverlay,
+      undefined,
+      markSent,
+      geometry.topBounds,
+      landedOut,
+    ),
   );
   if (error) return error;
+  const reported = landedOut.value ?? centre;
 
   return attachDialogs(deps.cdp, target.tabId, dialogCursor, {
     tab_id: target.tabId,
     used_ref: resolved.usedRef,
     used_selector: resolved.usedSelector,
-    x: centre.x,
-    y: centre.y,
+    x: reported.x,
+    y: reported.y,
+  });
+}
+
+/**
+ * Coordinate click: press at an explicit viewport point without
+ * resolving an element. The glide lands exactly on the requested point
+ * (landing scatter only applies when a comfortable element box is
+ * available), so `x`/`y` in the result are the requested coordinates.
+ */
+async function clickCoordinate(
+  target: ResolvedTargetTab,
+  params: Pick<ClickParams, "button" | "click_count" | "modifiers" | "glide">,
+  point: { x: number; y: number },
+  deps: InteractionDeps,
+  markSent?: () => void,
+): Promise<ClickResult | RpcError> {
+  const dialogCursor = markDialogCursor(deps.cdp, target.tabId);
+  if (throwIfAborted(deps.signal)) {
+    return { code: "cancelled", message: "click aborted" };
+  }
+  const clickCount = params.click_count ?? 1;
+  if (!Number.isSafeInteger(clickCount) || clickCount < 1) {
+    return { code: "invalid_params", message: "click_count must be a positive integer" };
+  }
+  const landedOut: { value?: { x: number; y: number } } = {};
+  const error = await withClickOverlay(target.tabId, point, deps, (verifyOverlay) =>
+    dispatchClickAtPoint(
+      target.tabId,
+      point,
+      params,
+      deps,
+      verifyOverlay,
+      undefined,
+      markSent,
+      null,
+      landedOut,
+    ),
+  );
+  if (error) return error;
+  const reported = landedOut.value ?? point;
+  return attachDialogs(deps.cdp, target.tabId, dialogCursor, {
+    tab_id: target.tabId,
+    x: reported.x,
+    y: reported.y,
   });
 }
 
@@ -531,11 +670,15 @@ export async function clickResolvedTarget(
 async function dispatchClickAtPoint(
   tabId: number,
   point: { x: number; y: number },
-  params: Pick<ClickParams, "button" | "click_count" | "modifiers">,
+  params: Pick<ClickParams, "button" | "click_count" | "modifiers" | "glide">,
   deps: InteractionDeps,
   verifyOverlay: () => Promise<RpcError | null>,
   beforePress?: () => Promise<RpcError | null>,
   markSent?: () => void,
+  /** Element box for the glided approach (inspection + landing scatter). */
+  targetBox?: { x: number; y: number; width: number; height: number } | null,
+  /** Receives the point actually pressed when a glide re-landed it. */
+  landedOut?: { value?: { x: number; y: number } },
 ): Promise<RpcError | null> {
   const button = params.button ?? "left",
     modifiers = modifiersBitfield(params.modifiers);
@@ -543,14 +686,16 @@ async function dispatchClickAtPoint(
     attempted = false,
     moved = false,
     count = params.click_count ?? 1;
-  const release = () =>
-    deps.cdp.send(tabId, "Input.dispatchMouseEvent", {
+  const release = () => {
+    deps.cursor?.release(tabId, point.x, point.y, count);
+    return deps.cdp.send(tabId, "Input.dispatchMouseEvent", {
       type: "mouseReleased",
       ...point,
       button,
       clickCount: count,
       modifiers,
     });
+  };
   const failure = (error: RpcError): RpcError =>
     beforePress || error.data?.reason === "input_not_ready"
       ? {
@@ -565,11 +710,34 @@ async function dispatchClickAtPoint(
   try {
     if (deps.signal?.aborted) return failure({ code: "cancelled", message: "click aborted" });
     moved = true;
+    // Humanised approach: the v2 state machine glides from the last
+    // pointer position to the click point with a pre-click brake. The
+    // plan may scatter the landing a few pixels off the element centre
+    // (only when the box is comfortably larger than the scatter), so
+    // the press follows the actual landing.
+    if (params.glide) {
+      const landed = await glideToPoint(deps.cdp, tabId, point, deps.signal, modifiers, {
+        dwell: true,
+        box: targetBox ?? null,
+        cursor: deps.cursor,
+      });
+      if (landed.x !== point.x || landed.y !== point.y) {
+        point = { x: landed.x, y: landed.y };
+        if (landedOut) landedOut.value = { x: landed.x, y: landed.y };
+      }
+    }
     await deps.cdp.send(tabId, "Input.dispatchMouseEvent", {
       type: "mouseMoved",
       ...point,
       modifiers,
     });
+    deps.cdp.rememberMousePos?.(tabId, point.x, point.y);
+    // Teleport approaches (no glide) still let the indicator glide locally;
+    // give it one capped beat to arrive before the press.
+    if (!params.glide) {
+      deps.cursor?.move(tabId, point.x, point.y, { tweenMs: TELEPORT_TWEEN_MS });
+      await deps.cursor?.settle(tabId, point.x, point.y);
+    }
     if (beforePress) {
       const error = await beforePress();
       if (error) return failure(error);
@@ -589,6 +757,7 @@ async function dispatchClickAtPoint(
       markSent?.();
       attempted = true;
       releaseNeeded = true;
+      deps.cursor?.press(tabId, point.x, point.y, count);
       await deps.cdp.send(tabId, "Input.dispatchMouseEvent", {
         type: "mousePressed",
         ...point,
@@ -715,22 +884,44 @@ export async function handleHover(
   if (denied) return denied;
   const dialogCursor = markDialogCursor(deps.cdp, target.tabId);
 
-  const node = await resolveBackendNode(deps.cdp, ctx, target, params, "hover");
-  if (isRpcError(node)) return node;
+  // Explicit viewport coordinates move the mouse without resolving an
+  // element; otherwise fall back to the ref/selector path.
+  const pointX = params.x;
+  const pointY = params.y;
+  let centre: { x: number; y: number };
+  let elementBox: { x: number; y: number; width: number; height: number } | null = null;
+  let usedRef: string | undefined;
+  let usedSelector: string | undefined;
+  if (pointX !== undefined && pointY !== undefined) {
+    const invalid = explicitHoverPointParamsError(params);
+    if (invalid) return invalid;
+    const point = await hoverPointInViewport(deps.cdp, target.tabId, pointX, pointY);
+    if (isRpcError(point)) return point;
+    centre = point;
+    deps.cdp.trackSessionTab?.(ctx.sessionId, target.tabId);
+  } else if (pointX !== undefined || pointY !== undefined) {
+    return { code: "invalid_params", message: "hover x and y must be provided together" };
+  } else {
+    const node = await resolveBackendNode(deps.cdp, ctx, target, params, "hover");
+    if (isRpcError(node)) return node;
 
-  deps.cdp.trackSessionTab?.(ctx.sessionId, target.tabId);
-  const geometry = await resolveNodeGeometry(
-    deps.cdp,
-    target.tabId,
-    {
-      target: node.cdpTarget,
-      backendNodeId: node.backendNodeId,
-      ...(node.frameId ? { frameId: node.frameId } : {}),
-    },
-    { scrollIntoView: true },
-  );
-  if (isRpcError(geometry)) return geometry;
-  const centre = geometry.actionPoint;
+    deps.cdp.trackSessionTab?.(ctx.sessionId, target.tabId);
+    const geometry = await resolveNodeGeometry(
+      deps.cdp,
+      target.tabId,
+      {
+        target: node.cdpTarget,
+        backendNodeId: node.backendNodeId,
+        ...(node.frameId ? { frameId: node.frameId } : {}),
+      },
+      { scrollIntoView: true },
+    );
+    if (isRpcError(geometry)) return geometry;
+    centre = geometry.actionPoint;
+    elementBox = geometry.topBounds;
+    usedRef = node.usedRef;
+    usedSelector = node.usedSelector;
+  }
 
   if (throwIfAborted(deps.signal)) {
     return { code: "cancelled", message: "hover aborted" };
@@ -750,12 +941,25 @@ export async function handleHover(
   }
 
   try {
-    await deps.cdp.send(target.tabId, "Input.dispatchMouseEvent", {
-      type: "mouseMoved",
-      x: centre.x,
-      y: centre.y,
-      modifiers,
-    });
+    if (params.glide) {
+      await glideToPoint(deps.cdp, target.tabId, centre, deps.signal, modifiers, {
+        box: elementBox,
+        cursor: deps.cursor,
+      });
+    } else {
+      await deps.cdp.send(target.tabId, "Input.dispatchMouseEvent", {
+        type: "mouseMoved",
+        x: centre.x,
+        y: centre.y,
+        modifiers,
+      });
+      // Single hop: let the indicator glide there locally while the tool's
+      // own settle wait runs.
+      deps.cursor?.move(target.tabId, centre.x, centre.y, { tweenMs: TELEPORT_TWEEN_MS });
+    }
+    // Track the pointer so a later glide starts from where the mouse
+    // actually is (both coordinate and element-centroid paths).
+    deps.cdp.rememberMousePos?.(target.tabId, centre.x, centre.y);
     const settleMs = params.settle_ms ?? DEFAULT_HOVER_SETTLE_MS;
     if (settleMs > 0) {
       await wait(settleMs, deps.signal);
@@ -785,11 +989,66 @@ export async function handleHover(
 
   return attachDialogs(deps.cdp, target.tabId, dialogCursor, {
     tab_id: target.tabId,
-    used_ref: node.usedRef,
-    used_selector: node.usedSelector,
+    used_ref: usedRef,
+    used_selector: usedSelector,
     x: centre.x,
     y: centre.y,
   });
+}
+
+/** Reject invalid explicit-coordinate hover requests before any CDP work. */
+function explicitHoverPointParamsError(params: HoverParams): RpcError | null {
+  if (params.ref !== undefined || params.selector !== undefined) {
+    return { code: "invalid_params", message: "hover x/y cannot be combined with ref/selector" };
+  }
+  return null;
+}
+
+/**
+ * Validate explicit hover coordinates against the top-level layout
+ * viewport so an out-of-range point fails with a clear error instead of
+ * silently moving the mouse outside the window. Shared with
+ * `tool.mouse_move`, which validates its endpoints the same way.
+ */
+export async function hoverPointInViewport(
+  cdp: CdpRunner,
+  tabId: number,
+  x: number,
+  y: number,
+  label = "hover",
+): Promise<{ x: number; y: number } | RpcError> {
+  if (!Number.isFinite(x) || !Number.isFinite(y)) {
+    return { code: "invalid_params", message: `${label} x and y must be finite numbers` };
+  }
+  let metrics: {
+    cssLayoutViewport?: { clientWidth?: number; clientHeight?: number };
+    layoutViewport?: { clientWidth?: number; clientHeight?: number };
+  };
+  try {
+    metrics = await cdp.send(tabId, "Page.getLayoutMetrics", {});
+  } catch (err) {
+    return cdpError(err);
+  }
+  const viewport = metrics.cssLayoutViewport ?? metrics.layoutViewport ?? {};
+  const width = viewport.clientWidth;
+  const height = viewport.clientHeight;
+  if (
+    typeof width !== "number" ||
+    typeof height !== "number" ||
+    !Number.isFinite(width) ||
+    !Number.isFinite(height) ||
+    width <= 0 ||
+    height <= 0
+  ) {
+    return { code: "cdp_failed", message: "Page.getLayoutMetrics returned no viewport size" };
+  }
+  if (x < 0 || x >= width || y < 0 || y >= height) {
+    return {
+      code: "invalid_params",
+      message: `${label} point (${x}, ${y}) is outside the ${width}x${height} viewport`,
+    };
+  }
+  return { x, y };
 }
 
 interface OverlayHitInspection {
@@ -845,7 +1104,7 @@ export function inspectOverlayHitAtPoint(x: number, y: number): OverlayHitInspec
  * Returns true when the control overlay has a visible layer with
  * pointer-events blocking the click point.
  */
-async function checkOverlayAtPoint(
+export async function checkOverlayAtPoint(
   cdp: CdpRunner,
   tabId: number,
   x: number,
@@ -1306,27 +1565,81 @@ export async function handleFill(
     }
     // CDP `Input.insertText` handles IME / multi-byte input out of the
     // box, much more reliably than per-key `dispatchKeyEvent`.
+    let trustedInputSeen: boolean | undefined;
     if (params.value !== "") {
+      deps.cursor?.key(target.tabId);
+      // Arm a detector for the trusted `input` event that insertText
+      // delivers. Pages that already react to it must not see the
+      // synthetic fallback below: `isTrusted: false` events are an
+      // automation fingerprint real user streams never contain.
+      const armed = await nodeCdp.send<FillScriptReply<unknown>>(
+        target.tabId,
+        "Runtime.callFunctionOn",
+        {
+          objectId,
+          functionDeclaration: `function() {
+            this.__bskFillSeen = false;
+            this.__bskFillH = (event) => { if (event.isTrusted) this.__bskFillSeen = true; };
+            this.addEventListener('input', this.__bskFillH, true);
+          }`,
+          returnByValue: true,
+        },
+      );
+      if (throwIfAborted(deps.signal)) {
+        return { code: "cancelled", message: "fill aborted" };
+      }
+      if (armed.exceptionDetails) {
+        return fillError("fill_failed", "fill input listener script failed");
+      }
       // Normalize the actual input as well as the expected value: older Chrome
       // versions retain CR in editors or turn CRLF into two textarea breaks.
       await deps.cdp.send(target.tabId, "Input.insertText", {
         text: params.value.replace(/\r\n?/g, "\n"),
       });
+      if (throwIfAborted(deps.signal)) {
+        return { code: "cancelled", message: "fill aborted" };
+      }
+      const probe = await nodeCdp.send<FillScriptReply<boolean>>(
+        target.tabId,
+        "Runtime.callFunctionOn",
+        {
+          objectId,
+          functionDeclaration: `function() {
+            const seen = this.__bskFillSeen === true;
+            if (this.__bskFillH) this.removeEventListener('input', this.__bskFillH, true);
+            delete this.__bskFillSeen;
+            delete this.__bskFillH;
+            return seen;
+          }`,
+          returnByValue: true,
+        },
+      );
+      if (throwIfAborted(deps.signal)) {
+        return { code: "cancelled", message: "fill aborted" };
+      }
+      if (probe.exceptionDetails) {
+        return fillError("fill_failed", "fill input probe script failed");
+      }
+      trustedInputSeen = probe.result?.value === true;
     }
     if (throwIfAborted(deps.signal)) {
       return { code: "cancelled", message: "fill aborted" };
     }
     // Keep the existing notifications, then read in a separate call so
     // nested microtasks queued by the page cannot race the verification.
+    // The synthetic events only fire when the page did not react to the
+    // trusted input event already (or nothing was typed).
     const notified = await nodeCdp.send<FillScriptReply<unknown>>(
       target.tabId,
       "Runtime.callFunctionOn",
       {
         objectId,
-        functionDeclaration: `function() {
+        functionDeclaration: `function(notify) {
+          if (!notify) return;
           this.dispatchEvent(new Event('input', { bubbles: true }));
           this.dispatchEvent(new Event('change', { bubbles: true }));
         }`,
+        arguments: [{ value: trustedInputSeen !== true }],
         returnByValue: true,
       },
     );
@@ -1607,6 +1920,7 @@ export async function handlePress(
       deps.cdp.trackSessionTab?.(ctx.sessionId, target.tabId);
       deps.onInputSent?.(target.tabId);
       input.markSent();
+      deps.cursor?.key(target.tabId);
       await deps.cdp.send(target.tabId, "Input.dispatchKeyEvent", {
         type: "rawKeyDown",
         key: descriptor.key,

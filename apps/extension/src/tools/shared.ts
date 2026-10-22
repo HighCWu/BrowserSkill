@@ -6,12 +6,19 @@
 // exactly the same sandbox + visibility rules as the M6 observation
 // handlers (review parity).
 
-import type { CdpDebuggee, CdpDispatchGuard, DialogCursor } from "@/browser-driver/chromium-cdp";
+import type {
+  CdpDebuggee,
+  CdpDispatchGuard,
+  DialogCursor,
+  MousePosition,
+} from "@/browser-driver/chromium-cdp";
 import type { CdpFrameGraph, CdpTarget } from "@/browser-driver/frame-graph";
 import {
   isAgentControlledTab,
+  isInPlaceBorrowedTab,
   type SessionContext,
   type SessionManager,
+  SessionStartCleanupError,
 } from "@/session-manager/manager";
 import { normaliseRef } from "@/session-manager/ref-store";
 import type { ConsoleResult, JavaScriptDialogInfo, RpcError } from "@/transport/types";
@@ -76,6 +83,10 @@ export interface CdpRunner {
   restoreBackgroundExecution?(sessionId: string, tabId: number): Promise<void>;
   trackSessionTab?(sessionId: string, tabId: number): void;
   releaseSessionTab?(sessionId: string, tabId: number): Promise<void>;
+  /** Last pointer position dispatched on this tab, or undefined before any tracked move. */
+  lastMousePos?(tabId: number): MousePosition | undefined;
+  /** Record the pointer position after dispatching a real mouse move. */
+  rememberMousePos?(tabId: number, x: number, y: number): void;
   onEvent?(handler: (source: CdpDebuggee, method: string, params: unknown) => void): {
     dispose(): void;
   };
@@ -254,6 +265,43 @@ async function resolveVisibleTargetTab(
       pendingUrl: tab.pendingUrl,
     };
   }
+  // Borrow/selected-tab pin: an in-place borrowed page never enters the
+  // Agent Window, so window-based resolution cannot find it. Self-heal by
+  // dropping the pin when the tab is gone or no longer ours.
+  if (ctx.defaultTabId !== undefined) {
+    try {
+      const pinned = await api.get(ctx.defaultTabId);
+      if (
+        typeof pinned.id === "number" &&
+        typeof pinned.windowId === "number" &&
+        isAgentControlledTab(ctx, pinned.id)
+      ) {
+        const owner = manager.findByWindowId(pinned.windowId);
+        if (!owner || owner.sessionId === ctx.sessionId) {
+          return {
+            tabId: pinned.id,
+            windowId: pinned.windowId,
+            active: pinned.active === true,
+            url: pinned.url,
+            pendingUrl: pinned.pendingUrl,
+          };
+        }
+      }
+    } catch {
+      /* fall through to Agent Window resolution */
+    }
+    delete ctx.defaultTabId;
+  }
+  // No pinned target: a window-less (in-place workflow) session has no
+  // Agent Window to fall back to — ask for an explicit target instead of
+  // silently acting on whatever is active in some other window.
+  if (ctx.agentWindowId === undefined) {
+    return {
+      code: "not_found",
+      message:
+        "no default target: this session has no Agent Window and no pinned tab; borrow a tab (tab borrow --in-place) or create one (tab create) first",
+    };
+  }
   const tabs = await api.query({ active: true, windowId: ctx.agentWindowId });
   let first = tabs.find((t) => typeof t.id === "number");
   if (first?.id !== undefined && isPendingTabRouting(ctx, first.id)) {
@@ -288,6 +336,38 @@ async function resolveVisibleTargetTab(
     url: first.url,
     pendingUrl: first.pendingUrl,
   };
+}
+
+/**
+ * Lazy Agent Window materialization for tools that genuinely need the
+ * window (`tab_create`, legacy `tab_borrow`, `window_resize`,
+ * `record_start`). In-place-only sessions never call these, so no window
+ * and no blank home tab appear at `session_start`. Chrome/API failures
+ * surface as `protocol_error`.
+ */
+export async function ensureAgentWindowOrError(
+  manager: SessionManager,
+  ctx: SessionContext,
+  toolName: string,
+  signal?: AbortSignal,
+): Promise<number | RpcError> {
+  try {
+    return await manager.ensureAgentWindow(ctx, { signal });
+  } catch (err) {
+    // AbortError propagates so the dispatcher classifies the RPC as
+    // cancelled instead of a protocol failure.
+    if ((err as { name?: string } | null)?.name === "AbortError") throw err;
+    if (err instanceof SessionStartCleanupError) {
+      return rpcError("protocol_error", "cleanup_failed", err.message, {
+        resource_type: "agent_window",
+        resource_id: err.windowId,
+      });
+    }
+    return {
+      code: "protocol_error",
+      message: `${toolName}: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
 }
 
 export function isRpcError(v: unknown): v is RpcError {
@@ -378,7 +458,8 @@ export async function resolveCdpAccessibleTargetTab(
   const restricted = enforceCdpAccessibleTarget(target, toolName);
   if (!restricted) return target;
   if (tabId !== undefined) return restricted;
-
+  // No Agent Window (in-place workflow): there is no sibling-tab scan to run.
+  if (ctx.agentWindowId === undefined) return restricted;
   const tabs = await api.query({ windowId: ctx.agentWindowId });
   for (const tab of tabs) {
     if (ctx.remote && (tab.id === undefined || !isAgentControlledTab(ctx, tab.id))) continue;
@@ -409,6 +490,9 @@ export function enforceAgentWindow(
       message: "This tab has not been authorized for the remote task",
     };
   }
+  // In-place borrows are authorized by their CLI invocation and stay in the
+  // tab's own window; Agent Window scope does not apply to them.
+  if (isInPlaceBorrowedTab(ctx, target.tabId)) return null;
   if (target.windowId !== ctx.agentWindowId) {
     return rpcError(
       "permission_denied",

@@ -52,7 +52,7 @@ async function fixture() {
       ensureActiveTab: async () => 7,
     },
   });
-  const ctx = await sessions.start("download-lifecycle");
+  const ctx = await sessions.startWithWindow("download-lifecycle");
   ctx.refStore.set("e1", 123, { tabId: 7 });
   const tab = { id: 7, windowId: 100, active: true } as chrome.tabs.Tab;
   const downloads = {

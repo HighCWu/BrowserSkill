@@ -131,7 +131,7 @@ describe("handleScreenshot", () => {
 
   it("captures the Agent Window's active tab when tab_id is omitted", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const capture = vi.fn(async (_w: number) => `data:image/png;base64,${TINY_PNG}`);
     const get = vi.fn();
     const query = vi.fn(async (_q: chrome.tabs.QueryInfo) => [
@@ -154,7 +154,7 @@ describe("handleScreenshot", () => {
 
   it("returns not_found when Agent Window has no active tab", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const res = await handleScreenshot(
       sm,
       { session_id: "aa11" },
@@ -169,7 +169,7 @@ describe("handleScreenshot", () => {
 
   it("captures an explicit active user tab in its real window", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const capture = vi.fn(async (_w: number) => `data:image/png;base64,${TINY_PNG}`);
     const get = vi.fn(async () => ({ id: 9, windowId: 200, active: true }) as chrome.tabs.Tab);
     const res = await handleScreenshot(
@@ -184,7 +184,7 @@ describe("handleScreenshot", () => {
 
   it("rejects screenshots for inactive explicit tabs", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const capture = vi.fn(async (_w: number) => `data:image/png;base64,${TINY_PNG}`);
     const get = vi.fn(async () => ({ id: 9, windowId: 100, active: false }) as chrome.tabs.Tab);
     const res = await handleScreenshot(
@@ -202,8 +202,8 @@ describe("handleScreenshot", () => {
 
   it("hides other sessions' Agent Window tabs", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100, 101]) });
-    await sm.start("aa11");
-    await sm.start("bb22");
+    await sm.startWithWindow("aa11");
+    await sm.startWithWindow("bb22");
     const capture = vi.fn(async (_w: number) => `data:image/png;base64,${TINY_PNG}`);
     const get = vi.fn(async () => ({ id: 9, windowId: 101, active: true }) as chrome.tabs.Tab);
     const res = await handleScreenshot(
@@ -217,7 +217,7 @@ describe("handleScreenshot", () => {
 
   it("propagates capture errors as cdp_failed", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const capture = vi.fn(async () => {
       throw new Error("captureVisibleTab refused");
     });
@@ -235,7 +235,7 @@ describe("handleScreenshot", () => {
 
   it("falls back to CDP Page.captureScreenshot when captureVisibleTab fails", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const capture = vi.fn(async () => {
       throw new Error("Failed to capture tab: image readback failed");
     });
@@ -258,7 +258,7 @@ describe("handleScreenshot", () => {
 
   it("reports screenshot_capture_failed when both capture paths fail", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const capture = vi.fn(async () => {
       throw new Error("Failed to capture tab: image readback failed");
     });
@@ -285,7 +285,7 @@ describe("handleScreenshot", () => {
     // Sanity: a successful primary path never touches CDP even when a
     // runner is available.
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const capture = vi.fn(async () => `data:image/png;base64,${TINY_PNG}`);
     const { cdp, sent } = makeFakeCdp({});
     const res = await handleScreenshot(
@@ -308,7 +308,7 @@ describe("handleScreenshot", () => {
     expected,
   }) => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.refStore.set("e5", 999, { tabId: 7 });
     const { cdp, sent } = makeFakeCdp({
       "DOM.scrollIntoViewIfNeeded": () => ({}),
@@ -347,7 +347,7 @@ describe("handleScreenshot", () => {
 
   it("returns not_found for unknown ref", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const { cdp } = makeFakeCdp({});
     const res = await handleScreenshot(
       sm,
@@ -365,7 +365,7 @@ describe("handleScreenshot", () => {
 
   it("accepts bare eN ref form", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.refStore.set("e5", 999, { tabId: 7 });
     const { cdp, sent } = makeFakeCdp({
       "DOM.scrollIntoViewIfNeeded": () => ({}),
@@ -391,7 +391,7 @@ describe("handleScreenshot", () => {
 
   it("returns not_found when ref belongs to another tab", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.refStore.set("e7", 4242, { tabId: 4 });
     const { cdp } = makeFakeCdp({});
     const res = await handleScreenshot(
@@ -410,7 +410,7 @@ describe("handleScreenshot", () => {
 
   it("returns permission_denied when element has no visible box", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.refStore.set("e1", 555, { tabId: 7 });
     const { cdp } = makeFakeCdp({
       "DOM.scrollIntoViewIfNeeded": () => ({}),
@@ -438,7 +438,7 @@ describe("handleScreenshot", () => {
 
   it("propagates Page.captureScreenshot errors as cdp_failed", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.refStore.set("e2", 888, { tabId: 7 });
     const { cdp } = makeFakeCdp({
       "DOM.scrollIntoViewIfNeeded": () => ({}),
@@ -479,7 +479,7 @@ describe("handleScreenshot overlay suppression", () => {
 
   it("hides the overlay around a visible-tab capture", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const events: string[] = [];
     const bridge = fakeSuppressBridge(events);
     const capture = vi.fn(async (_w: number) => {
@@ -501,7 +501,7 @@ describe("handleScreenshot overlay suppression", () => {
 
   it("hides the overlay around a CDP element capture", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.refStore.set("e5", 999, { tabId: 7 });
     const events: string[] = [];
     const bridge = fakeSuppressBridge(events);
@@ -535,7 +535,7 @@ describe("handleScreenshot overlay suppression", () => {
 
   it("still captures when the tab has no content script to ack", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const sendToTab = vi.fn(async () => {
       throw new Error("Could not establish connection. Receiving end does not exist.");
     });
@@ -2622,7 +2622,7 @@ describe("handleSnapshot", () => {
 
   it("populates the session's RefStore with backendNodeIds", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     const root: CdpAxNode = {
       nodeId: "1",
       role: { type: "role", value: "RootWebArea" },
@@ -2657,7 +2657,7 @@ describe("handleSnapshot", () => {
 
   it("keeps snapshots static without conditional surface probing", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const root: CdpAxNode = {
       nodeId: "1",
       role: { type: "role", value: "RootWebArea" },
@@ -2756,7 +2756,7 @@ describe("handleSnapshot", () => {
     // AX captures would leave the two halves of one observation describing the
     // page on either side of that change.
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     const root: CdpAxNode = {
       nodeId: "1",
       role: { type: "role", value: "RootWebArea" },
@@ -2867,7 +2867,7 @@ describe("handleSnapshot", () => {
 
   it("runs conditional surface probing only when observe opts in", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const root: CdpAxNode = {
       nodeId: "1",
       role: { type: "role", value: "RootWebArea" },
@@ -2977,7 +2977,7 @@ describe("handleSnapshot", () => {
 
   it("allows passive snapshots of explicit user-window tabs", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const root: CdpAxNode = {
       nodeId: "1",
       role: { type: "role", value: "RootWebArea" },
@@ -3007,7 +3007,7 @@ describe("handleSnapshot", () => {
 
   it("rejects semantic observe on explicit user-window tabs before CDP probing", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const deps = makeDeps([]);
     deps.tabsApi.get = vi.fn(
       async (tabId: number) => ({ id: tabId, windowId: 200, active: true }) as chrome.tabs.Tab,
@@ -3024,7 +3024,7 @@ describe("handleSnapshot", () => {
 
   it("resets the RefStore on every fresh snapshot", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.refStore.set("e9", 9999); // stale entry from a previous snapshot
     const deps = makeDeps([
       {
@@ -3041,7 +3041,7 @@ describe("handleSnapshot", () => {
 
   it("keeps the previous RefStore when cancellation lands during DOM capture", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.refStore.set("e1", 999, { tabId: 4 });
     const controller = new AbortController();
     let resolveCapture: (value: unknown) => void = () => {};
@@ -3103,7 +3103,7 @@ describe("handleSnapshot", () => {
 
   it("surfaces CDP failures as cdp_failed", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const sendImpl = async () => {
       throw new Error("debugger detached");
     };
@@ -3817,7 +3817,7 @@ describe("handleSnapshot", () => {
 
   it("stores iframe refs with their owning CDP session", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     const deps = makeFrameAwareDeps();
 
     const result = await handleSnapshot(sm, { session_id: "aa11" }, deps);
@@ -3836,7 +3836,7 @@ describe("handleSnapshot", () => {
 
   it("renders a blocking login overlay as the focused top layer", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const ax: CdpAxNode[] = [
       {
         nodeId: "1",
@@ -3892,7 +3892,7 @@ describe("handleSnapshot", () => {
     // cross-origin <iframe>. The iframe's inputs only appear in DOMSnapshot
     // documents[1], NOT in the AX tree.
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
 
     // AX tree: only the main-frame nodes. The iframe (nodeId=13) has no
     // children — Chrome excludes cross-origin frame content from getFullAXTree.
@@ -4025,7 +4025,7 @@ describe("handleSnapshot", () => {
 
   it("preserves viewport in single-layer VOM fallback when DOMSnapshot fails", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const ax: CdpAxNode[] = [
       {
         nodeId: "1",
@@ -4072,7 +4072,7 @@ describe("handleSnapshot", () => {
 
   it("masks password field values inside the overlay", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const ax: CdpAxNode[] = [
       {
         nodeId: "1",
@@ -4114,7 +4114,7 @@ describe("handleSnapshot", () => {
     // full-viewport blocker + the "中断" button). After excluding that host
     // subtree at capture time, the real page is the only layer.
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const ax: CdpAxNode[] = [
       {
         nodeId: "1",
@@ -4214,7 +4214,7 @@ describe("handleSnapshot", () => {
 
   it("filters overlay AX nodes when DOMSnapshot fails but DOM.describeNode finds overlay host", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const ax: CdpAxNode[] = [
       {
         nodeId: "1",
@@ -4316,7 +4316,7 @@ describe("handleGetHtml", () => {
 
   it("fetches the document HTML when no ref is given", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const html = "<html><body>hi</body></html>";
     const deps = makeDeps({
       "DOM.getDocument": () => ({ root: { nodeId: 1 } }),
@@ -4334,7 +4334,7 @@ describe("handleGetHtml", () => {
 
   it("scopes to a backendNodeId when given a ref", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.refStore.set("e7", 4242, { tabId: 4 });
     const deps = makeDeps({
       "DOM.getOuterHTML": (params) => {
@@ -4351,7 +4351,7 @@ describe("handleGetHtml", () => {
 
   it("reads a frame ref through its child CDP session", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.refStore.set("e7", 4242, {
       tabId: 4,
       frameId: "child-frame",
@@ -4377,7 +4377,7 @@ describe("handleGetHtml", () => {
 
   it("returns not_found when a ref belongs to another tab", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.refStore.set("e7", 4242, { tabId: 4 });
     const deps = makeDeps({});
     const res = await handleGetHtml(sm, { session_id: "aa11", tab_id: 5, ref: "@e7" }, deps);
@@ -4387,14 +4387,14 @@ describe("handleGetHtml", () => {
 
   it("returns not_found when ref is unknown to the session", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const res = await handleGetHtml(sm, { session_id: "aa11", ref: "e99" }, makeDeps({}));
     expect(res).toMatchObject({ code: "not_found", data: { reason: "ref_not_found" } });
   });
 
   it("truncates oversized HTML and reports the original byte_size", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const big = "x".repeat(10_000);
     const deps = makeDeps({
       "DOM.getDocument": () => ({ root: { nodeId: 1 } }),
@@ -4414,7 +4414,7 @@ describe("controlled viewport screenshot routing", () => {
     true,
   ])("uses the exact controlled target instead of the window surface (active=%s)", async (active) => {
     const manager = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await manager.start("aa11");
+    const ctx = await manager.startWithWindow("aa11");
     ctx.agentCreatedTabs.add(7);
     const capture = vi.fn(async () => {
       throw new Error("Window capture must not run");
@@ -4448,7 +4448,7 @@ describe("controlled viewport screenshot routing", () => {
 
   it("does not fall back to the window when controlled capture has no CDP", async () => {
     const manager = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await manager.start("aa11");
+    const ctx = await manager.startWithWindow("aa11");
     ctx.agentCreatedTabs.add(7);
     const capture = vi.fn();
     expect(
@@ -4467,7 +4467,7 @@ it.each([
   "background-explicit",
 ] as const)("keeps screenshot targeting compatible with PR249 (%s)", async (mode) => {
   const manager = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-  const ctx = await manager.start("aa11");
+  const ctx = await manager.startWithWindow("aa11");
   ctx.borrowedTabs.set(7, { tabId: 7, originalWindowId: 200, originalIndex: 0 });
   ctx.agentCreatedTabs.add(8);
   const capture = vi.fn();
@@ -4516,7 +4516,7 @@ it.each([
   "session-ended",
 ] as const)("discards a viewport result when target ownership changes during capture (%s)", async (kind) => {
   const manager = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-  const ctx = await manager.start("aa11");
+  const ctx = await manager.startWithWindow("aa11");
   ctx.borrowedTabs.set(7, { tabId: 7, originalWindowId: 200, originalIndex: 0 });
   let windowId = 100;
   const capture = vi.fn();

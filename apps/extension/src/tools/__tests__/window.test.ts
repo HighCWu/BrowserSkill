@@ -18,7 +18,7 @@ function fakeAgentWindow(ids: number[]) {
 
 async function makeManager(): Promise<SessionManager> {
   const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-  await sm.start("aa11");
+  await sm.startWithWindow("aa11");
   return sm;
 }
 
@@ -123,11 +123,9 @@ describe("handleSessionStart window size", () => {
     const preferences = new InteractionPreferenceStore(storage);
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100, 101]) });
     expect(await handleSessionStart(sm, { session_id: "first" }, { preferences })).toMatchObject({
-      agent_window_id: 100,
       interaction: { borrow_confirmation: "always", request_help: "enabled" },
     });
     expect(await handleSessionStart(sm, { session_id: "second" }, { preferences })).toMatchObject({
-      agent_window_id: 101,
       interaction: { borrow_confirmation: "never", request_help: "disabled" },
     });
     expect(storage.set).not.toHaveBeenCalled();
@@ -165,36 +163,35 @@ describe("handleSessionStart window size", () => {
     }
   });
 
-  it("passes width/height through to Agent Window creation", async () => {
+  it("stores width/height for the lazy Agent Window creation", async () => {
     const aw = fakeAgentWindow([100]);
     const sm = new SessionManager({ agentWindow: aw });
     const result = await handleSessionStart(sm, { session_id: "aa11", width: 1280, height: 800 });
+    // Lazy: session_start opens no window and reports none.
     expect(result).toMatchObject({
-      agent_window_id: 100,
       interaction: { borrow_confirmation: "always", request_help: "enabled" },
     });
+    expect(aw.create).not.toHaveBeenCalled();
+    const ctx = sm.get("aa11")!;
+    await sm.ensureAgentWindow(ctx);
     expect(aw.create).toHaveBeenCalledWith("about:blank", { size: { width: 1280, height: 800 } });
   });
 
-  it("creates the window without size when width/height are omitted", async () => {
+  it("creates the lazy window without size when width/height are omitted", async () => {
     const aw = fakeAgentWindow([100]);
     const sm = new SessionManager({ agentWindow: aw });
-    const result = await handleSessionStart(sm, { session_id: "aa11" });
-    expect(result).toMatchObject({
-      agent_window_id: 100,
-      interaction: { borrow_confirmation: "always", request_help: "enabled" },
-    });
+    await handleSessionStart(sm, { session_id: "aa11" });
+    const ctx = sm.get("aa11")!;
+    await sm.ensureAgentWindow(ctx);
     expect(aw.create).toHaveBeenCalledWith("about:blank", {});
   });
 
-  it("forwards focused: false to the Agent Window", async () => {
+  it("forwards focused: false to the lazy Agent Window creation", async () => {
     const aw = fakeAgentWindow([100]);
     const sm = new SessionManager({ agentWindow: aw });
-    const result = await handleSessionStart(sm, { session_id: "aa11", focused: false });
-    expect(result).toMatchObject({
-      agent_window_id: 100,
-      interaction: { borrow_confirmation: "always", request_help: "enabled" },
-    });
+    await handleSessionStart(sm, { session_id: "aa11", focused: false });
+    const ctx = sm.get("aa11")!;
+    await sm.ensureAgentWindow(ctx);
     expect(aw.create).toHaveBeenCalledWith("about:blank", { focused: false });
   });
 

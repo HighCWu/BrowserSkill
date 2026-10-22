@@ -47,7 +47,7 @@ it.skipIf(!process.env.BSK_CLICK_CHROME)(
               ensureActiveTab: async () => 7,
             },
           });
-          (await sessions.start("s1")).agentCreatedTabs.add(7);
+          (await sessions.startWithWindow("s1")).agentCreatedTabs.add(7);
           const hooks: object[] = [];
           const cdp = {
             sendAttached: (_target: unknown, method: string, params?: { expression?: string }) => {

@@ -46,7 +46,7 @@ async function harness(send: Send) {
       ensureActiveTab: async () => 4,
     },
   });
-  const ctx = await manager.start("aa11");
+  const ctx = await manager.startWithWindow("aa11");
   const calls: { method: string; sessionId?: string }[] = [];
   const after = { command: (_method: string) => {} };
   const sessionFor = (target: CdpTarget) => target.sessionId ?? rootSession;

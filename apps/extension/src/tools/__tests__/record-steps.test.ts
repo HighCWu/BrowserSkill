@@ -88,6 +88,7 @@ function fakeManager() {
         : null,
     findByWindowId: (windowId: number) =>
       windowId === AGENT_WINDOW_ID ? { sessionId: "abcd" } : null,
+    ensureAgentWindow: async () => AGENT_WINDOW_ID,
   } as unknown as SessionManager;
 }
 

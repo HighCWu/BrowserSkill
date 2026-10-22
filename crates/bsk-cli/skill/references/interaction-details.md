@@ -11,6 +11,10 @@
   occlusion. `wheel` sends signed deltas (at least one nonzero), not a guaranteed
   scroll distance. An optional target is scrolled into view first; without one,
   input lands at the viewport centre. Observe to check the page's response.
+- `mouse-move --x/--y` glides the pointer along a curved, timed path instead of
+  teleporting; `hover --glide` / `click --glide` apply the same approach to an
+  element. Use them when a page watches pointer motion. Each move ends exactly on
+  the target; durations are heuristics, not guarantees.
 
 ### Filling text
 

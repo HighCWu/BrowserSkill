@@ -51,6 +51,7 @@ import {
   type CdpRunner,
   type ChromeTabsApi,
   chromeTabsApi,
+  ensureAgentWindowOrError,
   isRpcError,
   lookupSession,
   resolveTargetTab,
@@ -875,6 +876,13 @@ export async function handleRecordStart(
   const target = await resolveTargetTab(manager, ctx, params.tab_id, deps.tabsApi);
   if (isRpcError(target)) return target;
 
+  // Recording routes its events by Agent Window membership, so the lazy
+  // window materializes here (record_start is an explicit window-centric
+  // feature; in-place-only sessions never call it).
+  const windowIdOrErr = await ensureAgentWindowOrError(manager, ctx, "record_start");
+  if (isRpcError(windowIdOrErr)) return windowIdOrErr;
+  const agentWindowId = windowIdOrErr;
+
   // Register the recording *before* navigate so content-script syncAgentOverlay
   // on the destination page can RECORD_QUERY → rearm → show RecordOverlay
   // instead of flashing ControlOverlay ("Agent 正在控制").
@@ -896,7 +904,7 @@ export async function handleRecordStart(
   recordings.set(params.session_id, {
     requestId,
     tabs: new RecordingTabCoordinator(target.tabId, navigateUrl),
-    agentWindowId: ctx.agentWindowId,
+    agentWindowId,
     isTabAllowed,
     startUrl: navigateUrl,
     ...(params.purpose ? { purpose: params.purpose } : {}),

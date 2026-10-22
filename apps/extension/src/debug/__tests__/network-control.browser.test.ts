@@ -126,7 +126,7 @@ describe.skipIf(!process.env.BSK_CLICK_CHROME)("real browser network controls", 
               ensureActiveTab: async () => 7,
             },
           });
-          await sessions.start("network-controls");
+          await sessions.startWithWindow("network-controls");
           const tab = {
             id: 7,
             windowId: 100,

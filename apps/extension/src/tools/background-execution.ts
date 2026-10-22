@@ -1,4 +1,8 @@
-import { isAgentControlledTab, type SessionManager } from "@/session-manager/manager";
+import {
+  isAgentControlledTab,
+  isInPlaceBorrowedTab,
+  type SessionManager,
+} from "@/session-manager/manager";
 import type { RequestFrame, RpcError } from "@/transport/types";
 import { extractTargetTab } from "./extract";
 import {
@@ -28,6 +32,7 @@ const pageTools = new Set([
   "tool.reload",
   "tool.click",
   "tool.hover",
+  "tool.mouse_move",
   "tool.wheel",
   "tool.scroll_to",
   "tool.focus",
@@ -79,7 +84,12 @@ export async function prepareBackgroundExecution(
     )
   )
     return;
-  if (!isAgentControlledTab(ctx, target.tabId) || target.windowId !== ctx.agentWindowId) return;
+  // In-place borrows live in their own window; control membership is enough.
+  if (
+    !isAgentControlledTab(ctx, target.tabId) ||
+    (target.windowId !== ctx.agentWindowId && !isInPlaceBorrowedTab(ctx, target.tabId))
+  )
+    return;
   // Other page tools cannot establish execution on browser-internal documents.
   if (cdpBlockedUrlReason(target.url)) return;
   if (signal.aborted) return { code: "cancelled", message: "Background execution setup cancelled" };

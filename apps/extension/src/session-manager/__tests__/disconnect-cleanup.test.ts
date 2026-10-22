@@ -13,8 +13,8 @@ describe("disconnect session cleanup", () => {
         remove,
       },
     });
-    await manager.start("aa11");
-    await manager.start("bb22");
+    await manager.startWithWindow("aa11");
+    await manager.startWithWindow("bb22");
     const detachSession = vi.fn(async () => {});
     const onSessionsChanged = vi.fn();
     const cleanup = createDisconnectCleanup({
@@ -45,7 +45,7 @@ describe("disconnect session cleanup", () => {
         remove: vi.fn(() => removeGate),
       },
     });
-    await manager.start("aa11");
+    await manager.startWithWindow("aa11");
     const cleanup = createDisconnectCleanup({ manager });
 
     const first = cleanup();

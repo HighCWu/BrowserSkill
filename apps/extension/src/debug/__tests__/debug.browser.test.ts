@@ -145,7 +145,7 @@ describe.skipIf(!process.env.BSK_CLICK_CHROME)("real browser website debugging",
               ensureActiveTab: async () => 7,
             },
           });
-          await sessions.start("website-debug");
+          await sessions.startWithWindow("website-debug");
           const tab = {
             id: 7,
             windowId: 100,

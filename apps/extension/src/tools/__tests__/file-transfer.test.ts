@@ -259,7 +259,7 @@ describe("file transfer tools", () => {
     true,
   ])("uploads staged paths through the requested click (covered=%s)", async (covered) => {
     const manager = sessions();
-    const ctx = await manager.start("s1");
+    const ctx = await manager.startWithWindow("s1");
     ctx.refStore.set("e3", 123, { tabId: 4 });
     let passthrough = false;
     const sendInputPassthrough = vi.fn(async (_tab: number, message: InputPassthroughMessage) => {
@@ -429,7 +429,7 @@ describe("file transfer tools", () => {
 
   it("delivers staged files through one explicit native drop without clicking", async () => {
     const manager = sessions();
-    const ctx = await manager.start("s1");
+    const ctx = await manager.startWithWindow("s1");
     ctx.refStore.set("e3", 123, { tabId: 4 });
     const lifecycle: string[] = [];
     const { cdp, calls } = dropCdp({ onCall: (method) => lifecycle.push(method) });
@@ -661,7 +661,7 @@ describe("file transfer tools", () => {
 
   it.each([false, true])("routes an exact-target download (covered=%s)", async (covered) => {
     const manager = sessions();
-    const ctx = await manager.start("s1");
+    const ctx = await manager.startWithWindow("s1");
     ctx.refStore.set("e3", 123, { tabId: 4 });
     const onCreated = fakeEvent<(item: chrome.downloads.DownloadItem) => void>();
     const onChanged = fakeEvent<(delta: chrome.downloads.DownloadDelta) => void>();
@@ -1116,7 +1116,7 @@ describe("file transfer tools", () => {
 
   it("routes an attachment that the clicked link opens in a new tab", async () => {
     const manager = sessions();
-    const ctx = await manager.start("s1");
+    const ctx = await manager.startWithWindow("s1");
     ctx.refStore.set("e3", 123, { tabId: 4 });
     const fakes = popupDownloadFakes();
     const download = fakes.item(50, "https://example.test/export?id=50");

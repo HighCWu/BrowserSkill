@@ -3,15 +3,25 @@
   "title": "TabBorrowResult",
   "type": "object",
   "required": [
-    "agent_window_id",
     "original_index",
     "original_window_id",
     "tab_id"
   ],
   "properties": {
     "agent_window_id": {
-      "type": "integer",
+      "description": "The session's Agent Window, when the borrow moved the tab into one. Absent for in-place borrows and lazily-windowed sessions: the window is a materialized-on-demand resource and may never exist.",
+      "type": [
+        "integer",
+        "null"
+      ],
       "format": "int64"
+    },
+    "in_place": {
+      "description": "True when the tab was attached in place rather than moved into the Agent Window; `original_window_id`/`original_index` then describe the tab's own (unchanged) location. Absent on legacy moves so older CLI peers parse the result unchanged.",
+      "type": [
+        "boolean",
+        "null"
+      ]
     },
     "original_index": {
       "type": "integer",

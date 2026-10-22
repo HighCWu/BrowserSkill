@@ -11,7 +11,7 @@ async function fixture() {
       ensureActiveTab: async () => 1,
     },
   });
-  const ctx = await manager.start("agent");
+  const ctx = await manager.startWithWindow("agent");
   const tabs = {
     get: vi.fn(
       async (id: number) =>

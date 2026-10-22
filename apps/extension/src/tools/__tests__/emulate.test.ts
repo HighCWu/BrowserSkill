@@ -69,7 +69,7 @@ function makeDeps(opts: { throwOn?: string; tabWindowId?: number } = {}) {
 
 async function makeManager(): Promise<SessionManager> {
   const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-  await sm.start("aa11");
+  await sm.startWithWindow("aa11");
   return sm;
 }
 
@@ -97,7 +97,7 @@ describe("handleEmulate", () => {
     "new-runner",
   ])("does not restore an old device profile after %s", async (mode) => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100, 100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const deps = makeDeps();
     let attachment: string | undefined = "first";
     deps.cdp.getAttachmentId = () => attachment;
@@ -106,7 +106,7 @@ describe("handleEmulate", () => {
     if (mode === "new-session" || mode === "same-id") {
       await sm.stop("aa11");
       sessionId = mode === "same-id" ? "aa11" : "bb22";
-      await sm.start(sessionId);
+      await sm.startWithWindow(sessionId);
     } else if (mode === "detach") attachment = undefined;
     else if (mode === "reattach") attachment = "second";
     const next = mode === "new-runner" ? makeDeps() : deps;

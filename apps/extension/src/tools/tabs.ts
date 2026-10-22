@@ -18,7 +18,13 @@ import { beginTabCreation } from "@/session-manager/tab-creation";
 import { detectBrowserMeta } from "@/transport/handshake";
 import type { RpcError } from "@/transport/types";
 import { rpcError } from "./errors";
-import { type CdpRunner, cdpBlockedUrlReason, isRpcError, lookupSession } from "./shared";
+import {
+  type CdpRunner,
+  cdpBlockedUrlReason,
+  ensureAgentWindowOrError,
+  isRpcError,
+  lookupSession,
+} from "./shared";
 
 export type TabScope = "user" | "agent" | "all";
 
@@ -91,13 +97,18 @@ export interface TabBorrowParams {
   /** Legacy input, ignored. The browser preference decides confirmation. */
   confirm?: boolean;
   confirmation_timeout_ms?: number;
+  /** Attach the tab where it lives: no move, no confirmation prompt. */
+  in_place?: boolean;
 }
 
 export interface TabBorrowResult {
   tab_id: number;
   original_window_id: number;
   original_index: number;
-  agent_window_id: number;
+  /** Absent for in-place borrows: the session may never open an Agent Window. */
+  agent_window_id?: number;
+  /** True when the tab was attached in place instead of moved. */
+  in_place?: boolean;
 }
 
 export interface TabReturnParams {
@@ -253,7 +264,7 @@ export async function handleTabList(
   // per-tab classification is O(1).
   const otherAgentWindowIds = new Set<number>();
   for (const s of manager.list()) {
-    if (s.sessionId !== params.session_id) {
+    if (s.sessionId !== params.session_id && s.agentWindowId !== undefined) {
       otherAgentWindowIds.add(s.agentWindowId);
     }
   }
@@ -456,6 +467,12 @@ export async function handleTabCreate(
   const paramErr = validateTabCreateParams(params);
   if (paramErr) return paramErr;
 
+  // Lazy Agent Window: tab_create is the feature that needs it, so the
+  // first create materializes the window (in-place-only sessions never
+  // reach this).
+  const windowErr = await ensureAgentWindowOrError(manager, ctx, "tab_create", deps.signal);
+  if (isRpcError(windowErr)) return windowErr;
+
   const props = buildCreateProps(ctx, params);
   // Match the session home: an unspecified automation URL is a navigable blank
   // document, not Chrome's restricted New Tab page.
@@ -512,7 +529,7 @@ export async function handleTabCreate(
 
   return {
     tab_id: tab.id,
-    window_id: ctx.agentWindowId,
+    window_id: typeof tab.windowId === "number" ? tab.windowId : (ctx.agentWindowId as number),
     url: prepare ? (props.url ?? "about:blank") : (tab.url ?? tab.pendingUrl ?? ""),
   };
 }
@@ -676,10 +693,10 @@ export async function handleTabSelect(
       message: err instanceof Error ? err.message : String(err),
     };
   }
-  // windowId stable across `update({active:true})`; reuse what
-  // authoriseAgentTab already loaded so we don't issue a second `get`.
-  const windowId = typeof tabOrErr.windowId === "number" ? tabOrErr.windowId : ctx.agentWindowId;
-  return { tab_id: params.tab_id, window_id: windowId };
+  ctx.defaultTabId = params.tab_id;
+  // authoriseAgentTab guaranteed a numeric windowId; no Agent Window
+  // fallback exists anymore (the window may not have been created).
+  return { tab_id: params.tab_id, window_id: tabOrErr.windowId as number };
 }
 
 // ---------------------------------------------------------------------------
@@ -695,6 +712,8 @@ interface ExecuteBorrowCoreParams {
   manager: SessionManager;
   ctx: SessionContext;
   tabId: number;
+  /** Materialized Agent Window id (lazy window is ensured before the move). */
+  agentWindowId: number;
   confirmationTimeoutMs?: number;
   tabsApi: TabMutationApi;
   approveBorrow: BorrowConfirmationApprover;
@@ -875,7 +894,7 @@ async function executeBorrowCore(
   const moveErr = await moveTabForBorrow(
     p.tabsApi,
     p.tabId,
-    p.ctx.agentWindowId,
+    p.agentWindowId,
     originalWindowId,
     originalIndex,
     p.signal,
@@ -908,6 +927,9 @@ export async function handleTabBorrow(
   if (params.confirm !== undefined && typeof params.confirm !== "boolean") {
     return { code: "invalid_params", message: "tab_borrow confirm must be a boolean" };
   }
+  if (params.in_place !== undefined && typeof params.in_place !== "boolean") {
+    return { code: "invalid_params", message: "tab_borrow in_place must be a boolean" };
+  }
 
   if (
     params.confirmation_timeout_ms !== undefined &&
@@ -922,26 +944,37 @@ export async function handleTabBorrow(
   }
   const existing = ctx.borrowedTabs.get(params.tab_id);
   if (existing) {
+    const inPlaceClaim = existing.inPlace === true;
     try {
       const tab = await getTabsApi(deps).get(params.tab_id);
-      if (
-        tab.windowId === ctx.agentWindowId &&
-        manager.get(ctx.sessionId) === ctx &&
-        !deps.signal?.aborted
-      ) {
-        return {
+      const stillOwned = manager.get(ctx.sessionId) === ctx && !deps.signal?.aborted;
+      if (stillOwned && (inPlaceClaim || tab.windowId === ctx.agentWindowId)) {
+        const result: TabBorrowResult = {
           tab_id: params.tab_id,
           original_window_id: existing.originalWindowId,
           original_index: existing.originalIndex,
           agent_window_id: ctx.agentWindowId,
         };
+        if (inPlaceClaim) {
+          result.in_place = true;
+          // Re-activate so the operator is looking at the right tab.
+          try {
+            await getTabsApi(deps).update(params.tab_id, { active: true });
+          } catch {
+            /* The claim stands; activation is best-effort. */
+          }
+        }
+        ctx.defaultTabId = params.tab_id;
+        return result;
       }
     } catch {
       /* Report the invalid claim without issuing another borrow. */
     }
     return {
       code: "invalid_params",
-      message: "Borrowed tab is no longer in this session's Agent Window",
+      message: inPlaceClaim
+        ? `Borrowed-in-place tab ${params.tab_id} no longer exists`
+        : "Borrowed tab is no longer in this session's Agent Window",
     };
   }
   const reservation = manager.tryReserveBorrow(params.tab_id, ctx.sessionId);
@@ -954,52 +987,89 @@ export async function handleTabBorrow(
   }
 
   const tabsApi = getTabsApi(deps);
-  const approve: BorrowConfirmationApprover =
-    deps.approveBorrow ??
-    (async () =>
-      rpcError(
-        "permission_denied",
-        "confirmation_ui_unavailable",
-        "Borrow confirmation is unavailable",
-      ));
   let committed = false;
+  let originalWindowId = 0;
+  let originalIndex = 0;
   try {
-    const coreResult = await executeBorrowCore({
-      manager,
-      ctx,
-      tabId: params.tab_id,
-      confirmationTimeoutMs: params.confirmation_timeout_ms,
-      tabsApi,
-      approveBorrow: approve,
-      signal: deps.signal,
-    });
-    if (isRpcError(coreResult)) return coreResult;
-
-    try {
+    if (params.in_place === true) {
+      // In-place attach: the CLI invocation is the authorization — no
+      // confirmation prompt, no move. The shared tail below activates the
+      // tab and acquires background execution; the rollback path goes
+      // through returnBorrowedTab, which for in-place entries only detaches.
+      const tab = await validateBorrowTarget(tabsApi, manager, ctx, params.tab_id);
+      if (isRpcError(tab)) return tab;
+      if (manager.get(ctx.sessionId) !== ctx || aborted(deps.signal, "tab_borrow")) {
+        return { code: "cancelled", message: "tab_borrow session ended" };
+      }
+      originalWindowId = tab.windowId;
+      originalIndex = typeof tab.index === "number" ? tab.index : 0;
       reservation.commit({
         tabId: params.tab_id,
-        originalWindowId: coreResult.originalWindowId,
-        originalIndex: coreResult.originalIndex,
+        originalWindowId,
+        originalIndex,
+        inPlace: true,
       });
       committed = true;
-    } catch (err) {
+      ctx.defaultTabId = params.tab_id;
+    } else {
+      const approve: BorrowConfirmationApprover =
+        deps.approveBorrow ??
+        (async () =>
+          rpcError(
+            "permission_denied",
+            "confirmation_ui_unavailable",
+            "Borrow confirmation is unavailable",
+          ));
+      // Legacy borrow moves the tab into the Agent Window; materialize the
+      // lazy window before the move (in-place borrows skip this entirely).
+      const agentWindowIdOrErr = await ensureAgentWindowOrError(
+        manager,
+        ctx,
+        "tab_borrow",
+        deps.signal,
+      );
+      if (isRpcError(agentWindowIdOrErr)) return agentWindowIdOrErr;
+      const coreResult = await executeBorrowCore({
+        manager,
+        ctx,
+        tabId: params.tab_id,
+        agentWindowId: agentWindowIdOrErr,
+        confirmationTimeoutMs: params.confirmation_timeout_ms,
+        tabsApi,
+        approveBorrow: approve,
+        signal: deps.signal,
+      });
+      if (isRpcError(coreResult)) return coreResult;
+      originalWindowId = coreResult.originalWindowId;
+      originalIndex = coreResult.originalIndex;
+
       try {
-        await tabsApi.move(params.tab_id, {
-          windowId: coreResult.originalWindowId,
-          index: coreResult.originalIndex,
+        reservation.commit({
+          tabId: params.tab_id,
+          originalWindowId,
+          originalIndex,
         });
-      } catch (rollbackError) {
-        return rpcError(
-          "protocol_error",
-          "borrow_outcome_unknown",
-          `tab_borrow commit failed and rollback could not be confirmed: ${describeError(rollbackError)}`,
-          { effect_state: "unknown", tab_id: params.tab_id },
-        );
+        committed = true;
+        ctx.defaultTabId = params.tab_id;
+      } catch (err) {
+        try {
+          await tabsApi.move(params.tab_id, {
+            windowId: coreResult.originalWindowId,
+            index: coreResult.originalIndex,
+          });
+        } catch (rollbackError) {
+          return rpcError(
+            "protocol_error",
+            "borrow_outcome_unknown",
+            `tab_borrow commit failed and rollback could not be confirmed: ${describeError(rollbackError)}`,
+            { effect_state: "unknown", tab_id: params.tab_id },
+          );
+        }
+        return {
+          code: "cancelled",
+          message: `tab_borrow claim could not be committed: ${describeError(err)}`,
+        };
       }
-      return {
-        code: "cancelled",
-        message: `tab_borrow claim could not be committed: ${describeError(err)}`,
-      };
     }
     // Preserve borrow's default-target contract: subsequent commands without a
     // tab_id operate on the borrowed page. Background execution survives later
@@ -1029,12 +1099,14 @@ export async function handleTabBorrow(
         message: describeError(error),
       };
     }
-    return {
+    const result: TabBorrowResult = {
       tab_id: params.tab_id,
-      original_window_id: coreResult.originalWindowId,
-      original_index: coreResult.originalIndex,
+      original_window_id: originalWindowId,
+      original_index: originalIndex,
       agent_window_id: ctx.agentWindowId,
     };
+    if (params.in_place === true) result.in_place = true;
+    return result;
   } finally {
     if (!committed) reservation.release();
   }
@@ -1185,7 +1257,11 @@ export async function returnBorrowedTab(
   tabId: number,
   deps: TabManagementDeps,
 ): Promise<ReturnOutcome | RpcError> {
-  return withUiTeardown(ctx, tabId, () => returnBorrowedTabCore(ctx, tabId, deps));
+  return withUiTeardown(ctx, tabId, async () => {
+    const result = await returnBorrowedTabCore(ctx, tabId, deps);
+    if (!isRpcError(result) && ctx.defaultTabId === tabId) delete ctx.defaultTabId;
+    return result;
+  });
 }
 
 async function returnBorrowedTabCore(
@@ -1198,6 +1274,16 @@ async function returnBorrowedTabCore(
     return {
       code: "not_found",
       message: `tab ${tabId} is not borrowed by session ${ctx.sessionId}`,
+    };
+  }
+  if (entry.inPlace === true) {
+    // The tab never left its window: detach only, move nothing.
+    await releaseReturnedTabState(ctx, tabId, deps);
+    return {
+      tabId,
+      toWindowId: entry.originalWindowId,
+      toIndex: entry.originalIndex,
+      fallback: false,
     };
   }
   const tabsApi = getTabsApi(deps);

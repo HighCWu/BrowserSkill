@@ -102,7 +102,7 @@ describe("modifiersBitfield", () => {
 describe("handleClick", () => {
   it("rejects when neither ref nor selector is given", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const fake = makeFakeCdp({});
     const res = await handleClick(
       sm,
@@ -112,9 +112,72 @@ describe("handleClick", () => {
     expect(res).toMatchObject({ code: "invalid_params" });
   });
 
+  it("clicks at explicit viewport coordinates without resolving an element", async () => {
+    const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
+    await sm.startWithWindow("aa11");
+    const fake = makeFakeCdp({ "Input.dispatchMouseEvent": () => ({}) });
+    const res = await handleClick(
+      sm,
+      { session_id: "aa11", x: 400, y: 300 },
+      { cdp: fake.cdp, tabsApi: fake.tabsApi },
+    );
+    expect(res).toMatchObject({ tab_id: 4, x: 400, y: 300 });
+    if ("code" in res) throw new Error(`unexpected error: ${JSON.stringify(res)}`);
+    expect(res.used_ref).toBeUndefined();
+    expect(res.used_selector).toBeUndefined();
+    const pressed = fake.sent.find(
+      (c) =>
+        c.method === "Input.dispatchMouseEvent" &&
+        (c.params as { type?: string } | undefined)?.type === "mousePressed",
+    );
+    expect(pressed?.params).toMatchObject({ x: 400, y: 300, clickCount: 1 });
+  });
+
+  it("rejects x without y and vice versa", async () => {
+    const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
+    await sm.startWithWindow("aa11");
+    const fake = makeFakeCdp({});
+    const res = await handleClick(
+      sm,
+      { session_id: "aa11", x: 400 },
+      { cdp: fake.cdp, tabsApi: fake.tabsApi },
+    );
+    expect(res).toMatchObject({ code: "invalid_params", message: /together/ });
+    const res2 = await handleClick(
+      sm,
+      { session_id: "aa11", y: 300 },
+      { cdp: fake.cdp, tabsApi: fake.tabsApi },
+    );
+    expect(res2).toMatchObject({ code: "invalid_params", message: /together/ });
+  });
+
+  it("rejects coordinates combined with ref/selector", async () => {
+    const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
+    await sm.startWithWindow("aa11");
+    const fake = makeFakeCdp({});
+    const res = await handleClick(
+      sm,
+      { session_id: "aa11", ref: "@e1", x: 400, y: 300 },
+      { cdp: fake.cdp, tabsApi: fake.tabsApi },
+    );
+    expect(res).toMatchObject({ code: "invalid_params", message: /combined/ });
+  });
+
+  it("rejects coordinates outside the viewport", async () => {
+    const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
+    await sm.startWithWindow("aa11");
+    const fake = makeFakeCdp({});
+    const res = await handleClick(
+      sm,
+      { session_id: "aa11", x: 2000, y: 300 },
+      { cdp: fake.cdp, tabsApi: fake.tabsApi },
+    );
+    expect(res).toMatchObject({ code: "invalid_params", message: /outside the 1280x720 viewport/ });
+  });
+
   it("rejects when both ref AND selector are given", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const fake = makeFakeCdp({});
     const res = await handleClick(
       sm,
@@ -129,7 +192,7 @@ describe("handleClick", () => {
 
   it("returns not_found when ref doesn't resolve in the session", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const fake = makeFakeCdp({});
     const res = await handleClick(
       sm,
@@ -141,7 +204,7 @@ describe("handleClick", () => {
 
   it("returns not_found when ref belongs to another tab", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.refStore.set("e3", 1234, { tabId: 4 });
     const fake = makeFakeCdp({});
     const res = await handleClick(
@@ -155,7 +218,7 @@ describe("handleClick", () => {
 
   it("double-clicks by ref with two consecutive native press/release pairs", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.refStore.set("e3", 1234, { tabId: 4 });
     const fake = makeFakeCdp({
       "DOM.scrollIntoViewIfNeeded": () => ({}),
@@ -195,7 +258,7 @@ describe("handleClick", () => {
     "overlay",
   ])("stops the second DOM press after %s interrupts the first", async (reason) => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.refStore.set("e3", 1234, { tabId: 4 });
     const controller = new AbortController();
     let released = false;
@@ -237,7 +300,7 @@ describe("handleClick", () => {
 
   it("resolves frame refs in their CDP session and dispatches input in top coordinates", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.refStore.set("e3", 1234, {
       tabId: 4,
       frameId: "child-frame",
@@ -332,7 +395,7 @@ describe("handleClick", () => {
       return { type: INPUT_PASSTHROUGH, ok: true };
     });
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.refStore.set("e3", 1234, { tabId: 4 });
     const fake = makeFakeCdp({
       "DOM.scrollIntoViewIfNeeded": () => ({}),
@@ -476,7 +539,7 @@ describe("handleClick", () => {
     const clock = vi.spyOn(Date, "now").mockImplementation(() => now);
     try {
       const manager = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-      const ctx = await manager.start("expiry");
+      const ctx = await manager.startWithWindow("expiry");
       ctx.refStore.set("e1", 100, { tabId: 4 });
       const mouse: string[] = [];
       let passthrough = false;
@@ -540,7 +603,7 @@ describe("handleClick", () => {
 
   it("leaves disabled click behavior to the browser without an AX preflight", async () => {
     const manager = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await manager.start("aa11");
+    const ctx = await manager.startWithWindow("aa11");
     ctx.refStore.set("e1", 100, { tabId: 4 });
     const fake = makeFakeCdp({
       "DOM.scrollIntoViewIfNeeded": () => ({}),
@@ -561,7 +624,7 @@ describe("handleClick", () => {
 
   it("rejects click_count=0", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.refStore.set("e3", 1234, { tabId: 4 });
     const fake = makeFakeCdp({
       "DOM.scrollIntoViewIfNeeded": () => ({}),
@@ -585,7 +648,7 @@ describe("handleClick", () => {
 
   it("falls back to DOM.getBoxModel when quads are missing", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.refStore.set("e1", 555, { tabId: 4 });
     const fake = makeFakeCdp({
       "DOM.scrollIntoViewIfNeeded": () => ({}),
@@ -605,7 +668,7 @@ describe("handleClick", () => {
 
   it("returns permission_denied when the element has no visible box", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.refStore.set("e1", 555, { tabId: 4 });
     const fake = makeFakeCdp({
       "DOM.scrollIntoViewIfNeeded": () => ({}),
@@ -628,7 +691,7 @@ describe("handleClick", () => {
 
   it("clicks by selector and reports used_selector in the result", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const fake = makeFakeCdp({
       "DOM.getDocument": () => ({ root: { nodeId: 1 } }),
       "DOM.querySelector": (p) => {
@@ -652,7 +715,7 @@ describe("handleClick", () => {
 
   it("falls back to Element.scrollIntoView when DOM.scrollIntoViewIfNeeded fails", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.refStore.set("e1", 100, { tabId: 4 });
     const fake = makeFakeCdp({
       "DOM.scrollIntoViewIfNeeded": () => {
@@ -677,7 +740,7 @@ describe("handleClick", () => {
 
   it("returns not_found when DOM.querySelector returns nodeId=0", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const fake = makeFakeCdp({
       "DOM.getDocument": () => ({ root: { nodeId: 1 } }),
       "DOM.querySelector": () => ({ nodeId: 0 }),
@@ -692,7 +755,7 @@ describe("handleClick", () => {
 
   it("respects the AbortSignal", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.refStore.set("e1", 100, { tabId: 4 });
     const abort = new AbortController();
     abort.abort();
@@ -707,7 +770,7 @@ describe("handleClick", () => {
 
   it("stops dispatching mouse events after a mid-click abort", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.refStore.set("e1", 100, { tabId: 4 });
     const abort = new AbortController();
     const fake = makeFakeCdp({
@@ -742,7 +805,7 @@ describe("click input readiness", () => {
     } = {},
   ) {
     const manager = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await manager.start("aa11");
+    const ctx = await manager.startWithWindow("aa11");
     ctx.refStore.set("e1", 1234, { tabId: 4 });
     const handler = (method: string, value: object) => (params: unknown) => {
       options.onCommand?.(method, params as Record<string, unknown>);
@@ -1236,7 +1299,7 @@ describe("handleHover", () => {
   it("keeps overlay bypass enabled after a successful hover when requested", async () => {
     const bypassOverlay = vi.fn().mockResolvedValue(undefined);
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.refStore.set("e3", 1234, { tabId: 4 });
     const fake = makeFakeCdp({
       "DOM.scrollIntoViewIfNeeded": () => ({}),
@@ -1274,12 +1337,201 @@ describe("handleHover", () => {
     expect(bypassOverlay).toHaveBeenCalledTimes(1);
     expect(bypassOverlay).toHaveBeenCalledWith(4, true);
   });
+
+  it("moves to explicit viewport coordinates without resolving an element", async () => {
+    const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
+    await sm.startWithWindow("aa11");
+    const fake = makeFakeCdp({
+      "Input.dispatchMouseEvent": () => ({}),
+    });
+
+    const res = await handleHover(
+      sm,
+      { session_id: "aa11", x: 500, y: 300, settle_ms: 0 },
+      { cdp: fake.cdp, tabsApi: fake.tabsApi },
+    );
+
+    if ("code" in res) throw new Error(`unexpected error: ${JSON.stringify(res)}`);
+    expect(res).toMatchObject({ tab_id: 4, x: 500, y: 300 });
+    expect(res.used_ref).toBeUndefined();
+    expect(res.used_selector).toBeUndefined();
+    const methods = fake.sent.map((call) => call.method);
+    expect(methods.some((m) => m.startsWith("DOM."))).toBe(false);
+    const move = fake.sent.find((call) => call.method === "Input.dispatchMouseEvent");
+    expect(move?.params).toMatchObject({ type: "mouseMoved", x: 500, y: 300 });
+  });
+
+  it("rejects explicit coordinates outside the viewport", async () => {
+    const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
+    await sm.startWithWindow("aa11");
+    const fake = makeFakeCdp({});
+
+    const res = await handleHover(
+      sm,
+      { session_id: "aa11", x: 1300, y: 300, settle_ms: 0 },
+      { cdp: fake.cdp, tabsApi: fake.tabsApi },
+    );
+
+    expect(res).toMatchObject({
+      code: "invalid_params",
+      message: /outside the 1280x720 viewport/,
+    });
+    expect(fake.sent.some((call) => call.method === "Input.dispatchMouseEvent")).toBe(false);
+  });
+
+  it("rejects partial or conflicting explicit coordinates", async () => {
+    const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
+    await sm.startWithWindow("aa11");
+    const fake = makeFakeCdp({});
+
+    const partial = await handleHover(
+      sm,
+      { session_id: "aa11", x: 500, settle_ms: 0 },
+      { cdp: fake.cdp, tabsApi: fake.tabsApi },
+    );
+    expect(partial).toMatchObject({
+      code: "invalid_params",
+      message: /provided together/,
+    });
+
+    const combined = await handleHover(
+      sm,
+      { session_id: "aa11", x: 500, y: 300, ref: "@e3", settle_ms: 0 },
+      { cdp: fake.cdp, tabsApi: fake.tabsApi },
+    );
+    expect(combined).toMatchObject({
+      code: "invalid_params",
+      message: /cannot be combined/,
+    });
+    expect(fake.sent.some((call) => call.method === "Input.dispatchMouseEvent")).toBe(false);
+  });
+});
+
+describe("interaction glide", () => {
+  it("hover with glide dispatches a trajectory ending on the target", async () => {
+    const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
+    await sm.startWithWindow("aa11");
+    const fake = makeFakeCdp({
+      "Input.dispatchMouseEvent": () => ({}),
+    });
+
+    const res = await handleHover(
+      sm,
+      { session_id: "aa11", x: 500, y: 300, settle_ms: 0, glide: true },
+      { cdp: fake.cdp, tabsApi: fake.tabsApi },
+    );
+
+    if ("code" in res) throw new Error(`unexpected error: ${JSON.stringify(res)}`);
+    expect(res).toMatchObject({ tab_id: 4, x: 500, y: 300 });
+    const path = fake.sent
+      .filter((c) => c.method === "Input.dispatchMouseEvent")
+      .map((c) => c.params as { type: string; x: number; y: number })
+      .filter((p) => p.type === "mouseMoved");
+    expect(path.length).toBeGreaterThan(1);
+    expect(path[path.length - 1]).toMatchObject({ x: 500, y: 300 });
+    // The eased trajectory starts at the viewport centre fallback
+    // (intermediate points carry ±0.5 px jitter).
+    expect(Math.abs(path[0].x - 640)).toBeLessThanOrEqual(0.5);
+    expect(Math.abs(path[0].y - 360)).toBeLessThanOrEqual(0.5);
+  });
+
+  it("hover without glide still records the pointer position", async () => {
+    const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
+    await sm.startWithWindow("aa11");
+    const remembered: Array<{ tabId: number; x: number; y: number }> = [];
+    const fake = makeFakeCdp({
+      "Input.dispatchMouseEvent": () => ({}),
+    });
+    const cdp = {
+      ...fake.cdp,
+      rememberMousePos: (tabId: number, x: number, y: number) => {
+        remembered.push({ tabId, x, y });
+      },
+    };
+
+    const res = await handleHover(
+      sm,
+      { session_id: "aa11", x: 500, y: 300, settle_ms: 0 },
+      { cdp, tabsApi: fake.tabsApi },
+    );
+
+    if ("code" in res) throw new Error(`unexpected error: ${JSON.stringify(res)}`);
+    const moved = fake.sent.filter((c) => c.method === "Input.dispatchMouseEvent");
+    expect(moved).toHaveLength(1);
+    expect(remembered).toEqual([{ tabId: 4, x: 500, y: 300 }]);
+  });
+
+  it("click with glide glides before pressing at a scattered landing", async () => {
+    const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
+    const ctx = await sm.startWithWindow("aa11");
+    ctx.refStore.set("e3", 1234, { tabId: 4 });
+    const fake = makeFakeCdp({
+      "DOM.scrollIntoViewIfNeeded": () => ({}),
+      "DOM.getContentQuads": () => ({ quads: [[10, 20, 110, 20, 110, 60, 10, 60]] }),
+      "Input.dispatchMouseEvent": () => ({}),
+    });
+
+    const res = await handleClick(
+      sm,
+      { session_id: "aa11", ref: "@e3", glide: true },
+      {
+        cdp: fake.cdp,
+        tabsApi: fake.tabsApi,
+      },
+    );
+
+    if ("code" in res) throw new Error(`unexpected error: ${JSON.stringify(res)}`);
+    expect(res).toMatchObject({ tab_id: 4, used_ref: "e3" });
+    // The press point is the plan's landing: inside the element, kept
+    // away from the geometric centre (landing scatter), and reported.
+    const centre = { x: 60, y: 40 };
+    const offset = Math.hypot(res.x - centre.x, res.y - centre.y);
+    expect(offset).toBeGreaterThanOrEqual(5.5);
+    expect(offset).toBeLessThanOrEqual(12.5);
+    expect(res.x).toBeGreaterThan(15);
+    expect(res.x).toBeLessThan(105);
+    expect(res.y).toBeGreaterThan(25);
+    expect(res.y).toBeLessThan(55);
+    const events = fake.sent
+      .filter((c) => c.method === "Input.dispatchMouseEvent")
+      .map((c) => c.params as { type: string; x: number; y: number });
+    const presses = events.filter((e) => e.type === "mousePressed");
+    expect(presses).toHaveLength(1);
+    expect(presses[0]).toMatchObject({ x: res.x, y: res.y });
+    const path = events.filter((e) => e.type === "mouseMoved");
+    // Glided approach plus the final confirming move before the press.
+    expect(path.length).toBeGreaterThan(2);
+    for (const point of path.slice(-2)) {
+      expect(point).toMatchObject({ x: res.x, y: res.y });
+    }
+  });
+
+  it("click rejects glide combined with a visual capture", async () => {
+    const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
+    await sm.startWithWindow("aa11");
+    const fake = makeFakeCdp({});
+
+    const res = await handleClick(
+      sm,
+      {
+        session_id: "aa11",
+        capture_id: "cap-1",
+        image_x: 10,
+        image_y: 10,
+        glide: true,
+      },
+      { cdp: fake.cdp, tabsApi: fake.tabsApi },
+    );
+
+    expect(res).toMatchObject({ code: "invalid_params", message: /glide cannot be combined/ });
+    expect(fake.sent).toHaveLength(0);
+  });
 });
 
 describe("handleFocus and handleBlur", () => {
   it("focuses a ref and verifies the deep active element", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.refStore.set("e3", 1234, { tabId: 4 });
     const fake = makeFakeCdp({
       "DOM.scrollIntoViewIfNeeded": () => ({}),
@@ -1307,7 +1559,7 @@ describe("handleFocus and handleBlur", () => {
 
   it("focuses an OOPIF ref in its CDP session", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.refStore.set("e3", 1234, {
       tabId: 4,
       frameId: "child-frame",
@@ -1357,7 +1609,7 @@ describe("handleFocus and handleBlur", () => {
 
   it("does not focus after cancellation during scrolling", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.refStore.set("e3", 1234, { tabId: 4 });
     const abort = new AbortController();
     const fake = makeFakeCdp({
@@ -1379,7 +1631,7 @@ describe("handleFocus and handleBlur", () => {
 
   it("blurs a ref and returns its previous focus state", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.refStore.set("e3", 1234, { tabId: 4 });
     const fake = makeFakeCdp({
       "DOM.resolveNode": () => ({ object: { objectId: "focus-target" } }),
@@ -1412,7 +1664,7 @@ describe("handleFocus and handleBlur", () => {
 
   it("rejects a target that does not implement blur", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.refStore.set("e3", 1234, { tabId: 4 });
     const fake = makeFakeCdp({
       "DOM.resolveNode": () => ({ object: { objectId: "focus-target" } }),
@@ -1434,6 +1686,9 @@ describe("handleFocus and handleBlur", () => {
 function successfulFillScript(params: unknown) {
   const script = params as { arguments?: Array<{ value: unknown }>; functionDeclaration: string };
   const args = script.arguments ?? [];
+  const declaration = script.functionDeclaration;
+  if (declaration.includes("__bskFillH = (")) return { result: { value: null } }; // arm listener
+  if (declaration.includes("const seen =")) return { result: { value: true } }; // probe: page reacted
   return {
     result: {
       value: script.functionDeclaration.startsWith("function(value, clearBefore")
@@ -1448,7 +1703,7 @@ function successfulFillScript(params: unknown) {
 describe("handleFill", () => {
   it("returns not_found for unknown ref", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const fake = makeFakeCdp({});
     const res = await handleFill(
       sm,
@@ -1461,7 +1716,7 @@ describe("handleFill", () => {
 
   it("rejects non-fillable elements as invalid_params", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.refStore.set("e1", 100, { tabId: 4 });
     const fake = makeFakeCdp({
       "DOM.describeNode": () => ({
@@ -1482,7 +1737,7 @@ describe("handleFill", () => {
 
   it("fills an <input> via Runtime.callFunctionOn + Input.insertText", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.refStore.set("e1", 555, { tabId: 4 });
     const fake = makeFakeCdp({
       "DOM.describeNode": () => ({
@@ -1506,14 +1761,93 @@ describe("handleFill", () => {
     expect(res.used_ref).toBe("e1");
     const insert = fake.sent.find((c) => c.method === "Input.insertText");
     expect(insert?.params).toEqual({ text: "hello" });
-    // Foreground replacement needs no extra caret-positioning round trip.
+    // Foreground replacement needs no extra caret-positioning round trip:
+    // preflight → prepared → readiness → arm → probe → notify → verify.
     const callFns = fake.sent.filter((c) => c.method === "Runtime.callFunctionOn");
-    expect(callFns).toHaveLength(5);
+    expect(callFns).toHaveLength(7);
+  });
+
+  it("skips the synthetic input/change fallback when the page reacted to the trusted event", async () => {
+    const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
+    const ctx = await sm.startWithWindow("aa11");
+    ctx.refStore.set("e1", 555, { tabId: 4 });
+    const notifyArgs: unknown[] = [];
+    const fake = makeFakeCdp({
+      "DOM.describeNode": () => ({
+        node: { backendNodeId: 555, nodeName: "INPUT", attributes: ["type", "text"] },
+      }),
+      "DOM.scrollIntoViewIfNeeded": () => ({}),
+      "DOM.focus": () => ({}),
+      "DOM.resolveNode": () => ({ object: { objectId: "obj-1" } }),
+      "Runtime.callFunctionOn": (p) => {
+        const script = p as { arguments?: Array<{ value: unknown }>; functionDeclaration: string };
+        if (script.functionDeclaration.includes("if (!notify)")) {
+          notifyArgs.push(script.arguments?.[0]?.value);
+          return { result: { value: null } };
+        }
+        if (script.functionDeclaration.includes("const seen =")) {
+          return { result: { value: true } };
+        }
+        if (script.functionDeclaration.includes("__bskFillH = (")) {
+          return { result: { value: null } };
+        }
+        return successfulFillScript(p);
+      },
+      "Runtime.releaseObject": () => ({}),
+      "Input.insertText": () => ({}),
+    });
+    const res = await handleFill(
+      sm,
+      { session_id: "aa11", ref: "e1", value: "hello" },
+      { cdp: fake.cdp, tabsApi: fake.tabsApi },
+    );
+    if ("code" in res) throw new Error(`unexpected error: ${JSON.stringify(res)}`);
+    expect(res.value_length).toBe(5);
+    expect(notifyArgs).toEqual([false]);
+  });
+
+  it("falls back to synthetic input/change when the page did not react", async () => {
+    const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
+    const ctx = await sm.startWithWindow("aa11");
+    ctx.refStore.set("e1", 555, { tabId: 4 });
+    const notifyArgs: unknown[] = [];
+    const fake = makeFakeCdp({
+      "DOM.describeNode": () => ({
+        node: { backendNodeId: 555, nodeName: "INPUT", attributes: ["type", "text"] },
+      }),
+      "DOM.scrollIntoViewIfNeeded": () => ({}),
+      "DOM.focus": () => ({}),
+      "DOM.resolveNode": () => ({ object: { objectId: "obj-1" } }),
+      "Runtime.callFunctionOn": (p) => {
+        const script = p as { arguments?: Array<{ value: unknown }>; functionDeclaration: string };
+        if (script.functionDeclaration.includes("if (!notify)")) {
+          notifyArgs.push(script.arguments?.[0]?.value);
+          return { result: { value: null } };
+        }
+        if (script.functionDeclaration.includes("const seen =")) {
+          return { result: { value: false } };
+        }
+        if (script.functionDeclaration.includes("__bskFillH = (")) {
+          return { result: { value: null } };
+        }
+        return successfulFillScript(p);
+      },
+      "Runtime.releaseObject": () => ({}),
+      "Input.insertText": () => ({}),
+    });
+    const res = await handleFill(
+      sm,
+      { session_id: "aa11", ref: "e1", value: "hello" },
+      { cdp: fake.cdp, tabsApi: fake.tabsApi },
+    );
+    if ("code" in res) throw new Error(`unexpected error: ${JSON.stringify(res)}`);
+    expect(res.value_length).toBe(5);
+    expect(notifyArgs).toEqual([true]);
   });
 
   it("passes clear_before=false to preparation and verifies the result", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.refStore.set("e1", 1, { tabId: 4 });
     const fake = makeFakeCdp({
       "DOM.describeNode": () => ({
@@ -1544,7 +1878,7 @@ describe("handleFill", () => {
 
   it("treats contenteditable=true as fillable", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.refStore.set("e1", 7, { tabId: 4 });
     const fake = makeFakeCdp({
       "DOM.describeNode": () => ({
@@ -1571,7 +1905,7 @@ describe("handleFill", () => {
 
   it("stops before Input.insertText when abort fires after clearing", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.refStore.set("e1", 555, { tabId: 4 });
     const abort = new AbortController();
     const fake = makeFakeCdp({
@@ -1600,7 +1934,7 @@ describe("handleFill", () => {
 
   it("stops before focus when abort fires after fill scroll", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.refStore.set("e1", 555, { tabId: 4 });
     const abort = new AbortController();
     const fake = makeFakeCdp({
@@ -1695,7 +2029,7 @@ function expectPressOk(res: PressResult | RpcError): asserts res is PressResult 
 describe("handlePress", () => {
   it("returns not_found for unknown ref", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const fake = makeFakeCdp({});
     const res = await handlePress(
       sm,
@@ -1708,7 +2042,7 @@ describe("handlePress", () => {
 
   it("dispatches rawKeyDown + char + keyUp for a printable letter", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const fake = makeFakeCdp({
       "Input.dispatchKeyEvent": () => ({}),
     });
@@ -1733,7 +2067,7 @@ describe("handlePress", () => {
 
   it("handles compound expressions and folds modifiers", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const fake = makeFakeCdp({ "Input.dispatchKeyEvent": () => ({}) });
     const res = await handlePress(
       sm,
@@ -1754,7 +2088,7 @@ describe("handlePress", () => {
 
   it("focuses an optional target before dispatch", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.refStore.set("e1", 555, { tabId: 4 });
     const fake = makeFakeCdp({
       "DOM.scrollIntoViewIfNeeded": () => ({}),
@@ -1778,7 +2112,7 @@ describe("handlePress", () => {
     "cancel",
   ])("preserves press outcome knowledge after %s failure", async (step) => {
     const manager = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await manager.start("aa11");
+    const ctx = await manager.startWithWindow("aa11");
     ctx.refStore.set("e1", 555, { tabId: 4 });
     const abort = new AbortController();
     const fake = makeFakeCdp({
@@ -1816,7 +2150,7 @@ describe("handlePress", () => {
 
   it("stops before focus when abort fires after press scroll", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.refStore.set("e1", 555, { tabId: 4 });
     const abort = new AbortController();
     const fake = makeFakeCdp({
@@ -1839,7 +2173,7 @@ describe("handlePress", () => {
 
   it("presses Enter when the key name is lowercase", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const fake = makeFakeCdp({ "Input.dispatchKeyEvent": () => ({}) });
     const res = await handlePress(
       sm,
@@ -1854,7 +2188,7 @@ describe("handlePress", () => {
 
   it("returns invalid_params for an unknown key", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const fake = makeFakeCdp({});
     const res = await handlePress(
       sm,
@@ -1866,7 +2200,7 @@ describe("handlePress", () => {
 
   it("holds the key for hold_ms between keyDown and keyUp", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const fake = makeFakeCdp({ "Input.dispatchKeyEvent": () => ({}) });
     const start = Date.now();
     const res = await handlePress(
@@ -1881,7 +2215,7 @@ describe("handlePress", () => {
 
   it("returns cancelled after hold_ms abort while still sending keyUp", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const abort = new AbortController();
     const fake = makeFakeCdp({ "Input.dispatchKeyEvent": () => ({}) });
     const pressP = handlePress(
@@ -1925,7 +2259,7 @@ describe("handleSelect", () => {
 
   it("rejects non-select elements as target_not_select", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.refStore.set("e1", 100, { tabId: 4 });
     const fake = makeFakeCdp({
       "DOM.describeNode": () => ({
@@ -1945,7 +2279,7 @@ describe("handleSelect", () => {
 
   it("sets multiple values on a <select multiple>", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.refStore.set("e1", 555, { tabId: 4 });
     const fake = makeFakeCdp(
       selectHandlers({
@@ -1972,7 +2306,7 @@ describe("handleSelect", () => {
 
   it("sets a single value on a single-select <select>", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.refStore.set("e1", 555, { tabId: 4 });
     const fake = makeFakeCdp(
       selectHandlers({
@@ -1994,7 +2328,7 @@ describe("handleSelect", () => {
 
   it("returns option_not_found when a value is missing", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.refStore.set("e1", 555, { tabId: 4 });
     const fake = makeFakeCdp(
       selectHandlers({
@@ -2049,7 +2383,7 @@ describe("handleSelect", () => {
     select.multiple = values.length > 1;
     select.innerHTML = options;
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.refStore.set("e1", 555, { tabId: 4 });
     const fake = makeFakeCdp({
       ...selectHandlers({ ok: true, multiple: select.multiple }),
@@ -2082,7 +2416,7 @@ describe("handleSelect", () => {
 
   it("rejects multiple values on a single-select <select>", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.refStore.set("e1", 555, { tabId: 4 });
     const fake = makeFakeCdp({
       "DOM.describeNode": () => ({
@@ -2103,7 +2437,7 @@ describe("handleSelect", () => {
 
   it("stops before mutation when abort fires after focus", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    const ctx = await sm.start("aa11");
+    const ctx = await sm.startWithWindow("aa11");
     ctx.refStore.set("e1", 555, { tabId: 4 });
     const abort = new AbortController();
     const fake = makeFakeCdp({
@@ -2133,7 +2467,7 @@ it.each([
   "press",
 ])("arms popup observation at native %s dispatch, after preparation", async (kind) => {
   const manager = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-  const task = await manager.start("popup");
+  const task = await manager.startWithWindow("popup");
   task.refStore.set("e1", 1234, { tabId: 4 });
   const order: string[] = [];
   const fake = makeFakeCdp({

@@ -34,6 +34,19 @@ pub enum MouseButton {
     Right,
 }
 
+/// Path shape for a humanised mouse move (`tool.mouse_move`, or the
+/// `glide` option of `tool.hover` / `tool.click`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum MouseCurve {
+    /// Cubic Bézier through two random control points offset
+    /// perpendicular to the start–end line (default).
+    #[default]
+    Bezier,
+    /// Straight line between start and end.
+    Linear,
+}
+
 // ---------------------------------------------------------------------------
 // click
 // ---------------------------------------------------------------------------
@@ -60,6 +73,15 @@ pub struct ClickParams {
     pub ref_: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub selector: Option<String>,
+    /// Viewport-relative X coordinate (CSS pixels). When both `x` and
+    /// `y` are supplied the click is dispatched at this point without
+    /// resolving an element; both must be given together and neither
+    /// may be combined with `ref`/`selector`/`capture_id`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub x: Option<f64>,
+    /// Viewport-relative Y coordinate (CSS pixels). See `x`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub y: Option<f64>,
     /// Target tab. Defaults to the Agent Window's active tab.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tab_id: Option<i64>,
@@ -71,6 +93,10 @@ pub struct ClickParams {
     pub click_count: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub modifiers: Option<Vec<KeyModifier>>,
+    /// Glide the pointer to the click point along a humanised trajectory
+    /// instead of teleporting. Mutually exclusive with `capture_id`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub glide: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(range(min = 1))]
     pub timeout_ms: Option<u32>,
@@ -100,7 +126,7 @@ pub struct ClickResult {
 pub struct HoverParams {
     pub session_id: String,
     /// Optional `@e<N>` ref allocated by the last observation.
-    /// Mutually exclusive with `selector`.
+    /// Mutually exclusive with `selector` and with `x`/`y`.
     #[serde(
         rename = "ref",
         alias = "ref_",
@@ -108,8 +134,18 @@ pub struct HoverParams {
         skip_serializing_if = "Option::is_none"
     )]
     pub ref_: Option<String>,
+    /// Mutually exclusive with `ref` and with `x`/`y`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub selector: Option<String>,
+    /// Viewport-relative X coordinate (CSS pixels). When both `x` and
+    /// `y` are supplied the mouse moves straight to this point without
+    /// resolving an element; both must be given together and neither
+    /// may be combined with `ref`/`selector`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub x: Option<f64>,
+    /// Viewport-relative Y coordinate (CSS pixels). See `x`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub y: Option<f64>,
     /// Target tab. Defaults to the Agent Window's active tab.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tab_id: Option<i64>,
@@ -119,6 +155,10 @@ pub struct HoverParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(range(min = 0))]
     pub settle_ms: Option<u32>,
+    /// Glide the pointer to the target along a humanised trajectory
+    /// instead of moving in a single step.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub glide: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(range(min = 1))]
     pub timeout_ms: Option<u32>,
@@ -134,6 +174,77 @@ pub struct HoverResult {
     /// Viewport-relative hover coordinates (CSS pixels).
     pub x: f64,
     pub y: f64,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dialogs: Vec<JavaScriptDialogInfo>,
+}
+
+// ---------------------------------------------------------------------------
+// mouse_move
+// ---------------------------------------------------------------------------
+
+/// Move the pointer along a humanised trajectory (`tool.mouse_move`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct MouseMoveParams {
+    pub session_id: String,
+    /// Destination X in top-level viewport CSS pixels.
+    #[serde(default)]
+    pub to_x: f64,
+    /// Destination Y in top-level viewport CSS pixels.
+    #[serde(default)]
+    pub to_y: f64,
+    /// Start X. Both `from_*` fields must be given together; when
+    /// omitted the trajectory starts at the pointer's last known
+    /// position on the tab, or the viewport centre if none is recorded.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from_x: Option<f64>,
+    /// Start Y. See `from_x`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from_y: Option<f64>,
+    /// Approximate wall-clock duration of the move. Defaults to an
+    /// adaptive value between 350–950 ms based on travel distance.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = 1))]
+    pub duration_ms: Option<u32>,
+    /// Number of dispatched move points (including the destination).
+    /// Defaults to `duration_ms / 12` clamped to 12–80.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = 2))]
+    pub steps: Option<u32>,
+    /// Path shape. Defaults to `bezier`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub curve: Option<MouseCurve>,
+    /// Overshoot the destination by 2–8% of the travel distance and
+    /// glide back. Defaults to a random ~12% chance.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub overshoot: Option<bool>,
+    /// Add ±0.5 px per-point noise. Defaults to `true`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub jitter: Option<bool>,
+    /// Target tab. Defaults to the Agent Window's active tab.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tab_id: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = 1))]
+    pub timeout_ms: Option<u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct MouseMoveResult {
+    pub tab_id: i64,
+    /// Start point the trajectory actually used.
+    pub from_x: f64,
+    pub from_y: f64,
+    /// Final dispatch point (equals the requested destination).
+    pub x: f64,
+    pub y: f64,
+    /// Number of `mouseMoved` events dispatched, including overshoot
+    /// return steps.
+    pub steps: u32,
+    /// Planned trajectory duration: the sum of the per-point sleeps.
+    pub duration_ms: u32,
+    /// Whether an overshoot-and-correct segment was used.
+    pub overshoot: bool,
+    pub curve: MouseCurve,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub dialogs: Vec<JavaScriptDialogInfo>,
 }
@@ -369,15 +480,74 @@ mod tests {
             session_id: "abcd".into(),
             ref_: Some("@e3".into()),
             selector: None,
+            x: None,
+            y: None,
             tab_id: Some(42),
             button: Some(MouseButton::Left),
             click_count: Some(1),
             modifiers: Some(vec![KeyModifier::Ctrl]),
+            glide: None,
             timeout_ms: Some(5_000),
         };
         let v = serde_json::to_value(&p).unwrap();
         assert_eq!(v.get("ref").and_then(|v| v.as_str()), Some("@e3"));
         assert!(v.get("ref_").is_none());
+        let round: ClickParams = serde_json::from_value(v).unwrap();
+        assert_eq!(round, p);
+    }
+
+    #[test]
+    fn click_params_serialise_glide_and_omit_when_absent() {
+        let p = ClickParams {
+            capture_id: None,
+            image_x: None,
+            image_y: None,
+            session_id: "abcd".into(),
+            ref_: Some("@e3".into()),
+            selector: None,
+            x: None,
+            y: None,
+            tab_id: None,
+            button: None,
+            click_count: None,
+            modifiers: None,
+            glide: Some(true),
+            timeout_ms: None,
+        };
+        let v = serde_json::to_value(&p).unwrap();
+        assert_eq!(v.get("glide"), Some(&serde_json::json!(true)));
+        let round: ClickParams = serde_json::from_value(v).unwrap();
+        assert_eq!(round, p);
+
+        let plain = ClickParams {
+            glide: None,
+            ..p
+        };
+        let v = serde_json::to_value(&plain).unwrap();
+        assert!(v.get("glide").is_none());
+    }
+
+    #[test]
+    fn click_params_round_trip_coordinates() {
+        let p = ClickParams {
+            capture_id: None,
+            image_x: None,
+            image_y: None,
+            session_id: "abcd".into(),
+            ref_: None,
+            selector: None,
+            x: Some(512.5),
+            y: Some(384.0),
+            tab_id: None,
+            button: None,
+            click_count: None,
+            modifiers: None,
+            glide: Some(true),
+            timeout_ms: None,
+        };
+        let v = serde_json::to_value(&p).unwrap();
+        assert_eq!(v.get("x"), Some(&serde_json::json!(512.5)));
+        assert_eq!(v.get("y"), Some(&serde_json::json!(384.0)));
         let round: ClickParams = serde_json::from_value(v).unwrap();
         assert_eq!(round, p);
     }
@@ -399,9 +569,12 @@ mod tests {
             session_id: "abcd".into(),
             ref_: Some("@e3".into()),
             selector: None,
+            x: None,
+            y: None,
             tab_id: Some(42),
             modifiers: Some(vec![KeyModifier::Shift]),
             settle_ms: Some(200),
+            glide: None,
             timeout_ms: Some(5_000),
         };
         let v = serde_json::to_value(&p).unwrap();
@@ -409,6 +582,162 @@ mod tests {
         assert!(v.get("ref_").is_none());
         let round: HoverParams = serde_json::from_value(v).unwrap();
         assert_eq!(round, p);
+    }
+
+    #[test]
+    fn hover_params_serialise_glide_and_omit_when_absent() {
+        let p = HoverParams {
+            session_id: "abcd".into(),
+            ref_: None,
+            selector: None,
+            x: None,
+            y: None,
+            tab_id: None,
+            modifiers: None,
+            settle_ms: None,
+            glide: Some(true),
+            timeout_ms: None,
+        };
+        let v = serde_json::to_value(&p).unwrap();
+        assert_eq!(v.get("glide"), Some(&serde_json::json!(true)));
+        let round: HoverParams = serde_json::from_value(v).unwrap();
+        assert_eq!(round, p);
+        let plain = HoverParams { glide: None, ..p };
+        let v = serde_json::to_value(&plain).unwrap();
+        assert!(v.get("glide").is_none());
+    }
+
+    #[test]
+    fn hover_params_omit_coordinates_when_absent() {
+        let p = HoverParams {
+            session_id: "abcd".into(),
+            ref_: None,
+            selector: None,
+            x: None,
+            y: None,
+            tab_id: None,
+            modifiers: None,
+            settle_ms: None,
+            glide: None,
+            timeout_ms: None,
+        };
+        let v = serde_json::to_value(&p).unwrap();
+        assert!(v.get("x").is_none());
+        assert!(v.get("y").is_none());
+        let round: HoverParams = serde_json::from_value(v).unwrap();
+        assert_eq!(round, p);
+    }
+
+    #[test]
+    fn hover_params_round_trip_coordinates() {
+        let p = HoverParams {
+            session_id: "abcd".into(),
+            ref_: None,
+            selector: None,
+            x: Some(512.5),
+            y: Some(384.0),
+            tab_id: None,
+            modifiers: None,
+            settle_ms: Some(200),
+            glide: None,
+            timeout_ms: None,
+        };
+        let v = serde_json::to_value(&p).unwrap();
+        assert_eq!(v.get("x"), Some(&serde_json::json!(512.5)));
+        assert_eq!(v.get("y"), Some(&serde_json::json!(384.0)));
+        let round: HoverParams = serde_json::from_value(v).unwrap();
+        assert_eq!(round, p);
+    }
+
+    #[test]
+    fn mouse_move_params_round_trip_full_shape() {
+        let p = MouseMoveParams {
+            session_id: "abcd".into(),
+            to_x: 800.0,
+            to_y: 400.0,
+            from_x: Some(10.5),
+            from_y: Some(20.0),
+            duration_ms: Some(700),
+            steps: Some(48),
+            curve: Some(MouseCurve::Linear),
+            overshoot: Some(false),
+            jitter: Some(false),
+            tab_id: Some(7),
+            timeout_ms: Some(9_000),
+        };
+        let v = serde_json::to_value(&p).unwrap();
+        assert_eq!(v.get("to_x"), Some(&serde_json::json!(800.0)));
+        assert_eq!(v.get("curve"), Some(&serde_json::json!("linear")));
+        let round: MouseMoveParams = serde_json::from_value(v).unwrap();
+        assert_eq!(round, p);
+    }
+
+    #[test]
+    fn mouse_move_params_omit_optional_fields() {
+        let p = MouseMoveParams {
+            session_id: "abcd".into(),
+            to_x: 12.0,
+            to_y: 34.0,
+            from_x: None,
+            from_y: None,
+            duration_ms: None,
+            steps: None,
+            curve: None,
+            overshoot: None,
+            jitter: None,
+            tab_id: None,
+            timeout_ms: None,
+        };
+        let v = serde_json::to_value(&p).unwrap();
+        for field in [
+            "from_x",
+            "from_y",
+            "duration_ms",
+            "steps",
+            "curve",
+            "overshoot",
+            "jitter",
+            "tab_id",
+            "timeout_ms",
+        ] {
+            assert!(v.get(field).is_none(), "{field} should be omitted");
+        }
+        let round: MouseMoveParams = serde_json::from_value(v).unwrap();
+        assert_eq!(round, p);
+    }
+
+    #[test]
+    fn mouse_move_params_default_curve_is_bezier() {
+        let p: MouseMoveParams = serde_json::from_value(serde_json::json!({
+            "session_id": "abcd",
+            "to_x": 1.0,
+            "to_y": 2.0
+        }))
+        .unwrap();
+        assert_eq!(p.curve, None);
+        assert_eq!(MouseCurve::default(), MouseCurve::Bezier);
+    }
+
+    #[test]
+    fn mouse_move_result_round_trips_stats() {
+        let r = MouseMoveResult {
+            tab_id: 9,
+            from_x: 640.0,
+            from_y: 360.0,
+            x: 800.0,
+            y: 400.0,
+            steps: 42,
+            duration_ms: 613,
+            overshoot: true,
+            curve: MouseCurve::Bezier,
+            dialogs: vec![],
+        };
+        let v = serde_json::to_value(&r).unwrap();
+        assert_eq!(v.get("steps"), Some(&serde_json::json!(42)));
+        assert_eq!(v.get("duration_ms"), Some(&serde_json::json!(613)));
+        assert_eq!(v.get("overshoot"), Some(&serde_json::json!(true)));
+        let round: MouseMoveResult = serde_json::from_value(v).unwrap();
+        assert_eq!(round, r);
     }
 
     #[test]

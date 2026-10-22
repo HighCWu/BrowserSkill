@@ -123,6 +123,15 @@ pub struct ClickArgs {
     #[arg(long = "selector")]
     pub selector: Option<String>,
 
+    /// Viewport-relative X coordinate (CSS pixels). Requires `--y`;
+    /// replaces the positional target (no element is resolved).
+    #[arg(long, requires = "y", conflicts_with_all = ["capture_id", "ref_", "selector"])]
+    pub x: Option<f64>,
+
+    /// Viewport-relative Y coordinate (CSS pixels). Requires `--x`.
+    #[arg(long, requires = "x")]
+    pub y: Option<f64>,
+
     #[arg(long)]
     pub session: String,
 
@@ -145,17 +154,32 @@ pub struct ClickArgs {
     #[arg(long, default_value = "")]
     pub modifiers: String,
 
+    /// Glide the pointer to the click point along a humanised trajectory
+    /// instead of teleporting. Cannot be combined with `--capture`.
+    #[arg(long, conflicts_with = "capture_id")]
+    pub glide: bool,
+
     #[arg(long, default_value = "30s", value_parser = parse_timeout_ms)]
     pub timeout: u32,
 }
 
 pub fn dispatch_click(args: ClickArgs, format: Format) -> Result<(), CliError> {
     let info = ensure_daemon().context("ensure daemon is running")?;
-    let (ref_, selector) = split_target(
-        args.target.clone(),
-        args.ref_.clone(),
-        args.selector.clone(),
-    )?;
+    let coordinate_click = args.x.is_some() || args.y.is_some();
+    let (ref_, selector) = if coordinate_click {
+        if args.target.is_some() {
+            return Err(CliError::Local(anyhow::anyhow!(
+                "pass either a positional target or --x/--y coordinates, not both"
+            )));
+        }
+        (None, None)
+    } else {
+        split_target(
+            args.target.clone(),
+            args.ref_.clone(),
+            args.selector.clone(),
+        )?
+    };
     let modifiers = parse_modifiers(&args.modifiers)
         .map_err(|e| CliError::Local(anyhow::anyhow!("--modifiers: {e}")))?;
     let params = ClickParams {
@@ -165,6 +189,8 @@ pub fn dispatch_click(args: ClickArgs, format: Format) -> Result<(), CliError> {
         session_id: args.session.clone(),
         ref_,
         selector,
+        x: args.x,
+        y: args.y,
         tab_id: args.tab_id,
         button: Some(args.button.into()),
         click_count: Some(args.click_count),
@@ -173,6 +199,7 @@ pub fn dispatch_click(args: ClickArgs, format: Format) -> Result<(), CliError> {
         } else {
             Some(modifiers)
         },
+        glide: if args.glide { Some(true) } else { None },
         timeout_ms: Some(args.timeout),
     };
     let reply: ClickResult = call(
@@ -209,7 +236,7 @@ pub fn dispatch_click(args: ClickArgs, format: Format) -> Result<(), CliError> {
 
 #[derive(Debug, Clone, Args)]
 pub struct HoverArgs {
-    /// Snapshot ref (`@e3`, `e3`) or CSS selector. Optional when `--ref`/`--selector` is used.
+    /// Snapshot ref (`@e3`, `e3`) or CSS selector. Optional when `--ref`/`--selector` or `--x`/`--y` is used.
     pub target: Option<String>,
 
     /// Force-treat the value as a snapshot ref (overrides positional detection).
@@ -219,6 +246,15 @@ pub struct HoverArgs {
     /// Force-treat the value as a CSS selector.
     #[arg(long = "selector")]
     pub selector: Option<String>,
+
+    /// Viewport-relative X coordinate (CSS pixels). Moves the mouse to
+    /// this point directly, without resolving an element. Requires `--y`.
+    #[arg(long = "x", value_name = "X")]
+    pub x: Option<f64>,
+
+    /// Viewport-relative Y coordinate (CSS pixels). Requires `--x`.
+    #[arg(long = "y", value_name = "Y")]
+    pub y: Option<f64>,
 
     #[arg(long)]
     pub session: String,
@@ -234,23 +270,35 @@ pub struct HoverArgs {
     #[arg(long = "settle", default_value = "200ms", value_parser = parse_timeout_ms)]
     pub settle: u32,
 
+    /// Glide the pointer to the target along a humanised trajectory
+    /// instead of moving in a single step.
+    #[arg(long)]
+    pub glide: bool,
+
     #[arg(long, default_value = "30s", value_parser = parse_timeout_ms)]
     pub timeout: u32,
 }
 
 pub fn dispatch_hover(args: HoverArgs, format: Format) -> Result<(), CliError> {
     let info = ensure_daemon().context("ensure daemon is running")?;
-    let (ref_, selector) = split_target(
-        args.target.clone(),
-        args.ref_.clone(),
-        args.selector.clone(),
-    )?;
+    let point = hover_point(&args)?;
+    let (ref_, selector) = if point.is_some() {
+        (None, None)
+    } else {
+        split_target(
+            args.target.clone(),
+            args.ref_.clone(),
+            args.selector.clone(),
+        )?
+    };
     let modifiers = parse_modifiers(&args.modifiers)
         .map_err(|e| CliError::Local(anyhow::anyhow!("--modifiers: {e}")))?;
     let params = HoverParams {
         session_id: args.session.clone(),
         ref_,
         selector,
+        x: point.map(|(x, _)| x),
+        y: point.map(|(_, y)| y),
         tab_id: args.tab_id,
         modifiers: if modifiers.is_empty() {
             None
@@ -258,6 +306,7 @@ pub fn dispatch_hover(args: HoverArgs, format: Format) -> Result<(), CliError> {
             Some(modifiers)
         },
         settle_ms: Some(args.settle),
+        glide: if args.glide { Some(true) } else { None },
         timeout_ms: Some(args.timeout),
     };
     let reply: HoverResult = call(
@@ -286,6 +335,25 @@ pub fn dispatch_hover(args: HoverArgs, format: Format) -> Result<(), CliError> {
         }
     }
     Ok(())
+}
+
+/// Resolve the explicit hover point from `--x`/`--y`. The two flags must
+/// be supplied together and are mutually exclusive with any element
+/// target (`<target>`, `--ref`, `--selector`).
+fn hover_point(args: &HoverArgs) -> Result<Option<(f64, f64)>, CliError> {
+    match (args.x, args.y) {
+        (None, None) => Ok(None),
+        (Some(x), Some(y)) => {
+            if args.target.is_some() || args.ref_.is_some() || args.selector.is_some() {
+                return Err(CliError::Local(anyhow::anyhow!(
+                    "pass exactly one of: <target>/--ref/--selector, or --x/--y coordinates"
+                )));
+            }
+            Ok(Some((x, y)))
+        }
+        (Some(_), None) => Err(CliError::Local(anyhow::anyhow!("--x requires --y"))),
+        (None, Some(_)) => Err(CliError::Local(anyhow::anyhow!("--y requires --x"))),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -785,5 +853,124 @@ mod tests {
         assert_eq!(parsed.args.target.as_deref(), Some("@e138"));
         assert_eq!(parsed.args.values, vec!["us", "ca"]);
         assert_eq!(parsed.args.session, "ohli");
+    }
+
+    fn hover_wrapper() -> impl Fn(&[&str]) -> Result<HoverArgs, String> {
+        use clap::Parser;
+
+        #[derive(Parser)]
+        #[command(name = "hover")]
+        struct Wrapper {
+            #[command(flatten)]
+            args: HoverArgs,
+        }
+        move |argv: &[&str]| {
+            Wrapper::try_parse_from(std::iter::once("hover").chain(argv.iter().copied()))
+                .map(|w| w.args)
+                .map_err(|e| e.to_string())
+        }
+    }
+
+    #[test]
+    fn hover_clap_accepts_coordinate_flags() {
+        let parse = hover_wrapper();
+        let parsed = parse(&["--x", "500", "--y", "300", "--session", "ohli"])
+            .expect("hover --x/--y should parse");
+        assert_eq!(parsed.x, Some(500.0));
+        assert_eq!(parsed.y, Some(300.0));
+        assert!(parsed.target.is_none());
+        let parsed = parse(&["--session", "ohli", "@e3"]).expect("plain hover should parse");
+        assert_eq!(parsed.x, None);
+        assert_eq!(parsed.y, None);
+    }
+
+    #[test]
+    fn hover_point_rejects_partial_and_conflicting_targets() {
+        let parse = hover_wrapper();
+        let args =
+            parse(&["--x", "500", "--session", "ohli"]).expect("--x alone should still parse");
+        assert!(hover_point(&args).is_err(), "--x alone must be rejected");
+        let args =
+            parse(&["--y", "300", "--session", "ohli"]).expect("--y alone should still parse");
+        assert!(hover_point(&args).is_err(), "--y alone must be rejected");
+        let args = parse(&[
+            "--x",
+            "500",
+            "--y",
+            "300",
+            "--ref",
+            "@e3",
+            "--session",
+            "ohli",
+        ])
+        .expect("--x/--y with --ref should parse");
+        assert!(
+            hover_point(&args).is_err(),
+            "coordinates combined with an element target must be rejected"
+        );
+    }
+
+    #[test]
+    fn hover_clap_accepts_glide_flag() {
+        use clap::Parser;
+
+        #[derive(Parser)]
+        #[command(name = "hover")]
+        struct Wrapper {
+            #[command(flatten)]
+            args: HoverArgs,
+        }
+
+        let parsed = Wrapper::try_parse_from([
+            "hover",
+            "--x",
+            "500",
+            "--y",
+            "300",
+            "--glide",
+            "--session",
+            "ohli",
+        ])
+        .expect("hover --glide should parse");
+        assert!(parsed.args.glide);
+        let parsed = Wrapper::try_parse_from(["hover", "@e3", "--session", "ohli"])
+            .expect("plain hover should parse");
+        assert!(!parsed.args.glide, "glide defaults to off");
+    }
+
+    #[test]
+    fn click_clap_accepts_glide_and_rejects_glide_with_capture() {
+        use clap::Parser;
+
+        #[derive(Parser)]
+        #[command(name = "click")]
+        struct Wrapper {
+            #[command(flatten)]
+            args: ClickArgs,
+        }
+
+        let parsed = Wrapper::try_parse_from(["click", "@e3", "--glide", "--session", "ohli"])
+            .expect("click --glide should parse");
+        assert!(parsed.args.glide);
+        let parsed = Wrapper::try_parse_from(["click", "@e3", "--session", "ohli"])
+            .expect("plain click should parse");
+        assert!(!parsed.args.glide, "glide defaults to off");
+
+        let conflict = Wrapper::try_parse_from([
+            "click",
+            "--capture",
+            "cap-1",
+            "--image-x",
+            "10",
+            "--image-y",
+            "20",
+            "--glide",
+            "--session",
+            "ohli",
+        ]);
+        assert!(
+            conflict.is_err(),
+            "--glide must conflict with --capture at parse time"
+        );
     }
 }

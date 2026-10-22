@@ -355,7 +355,9 @@ async function stopSession(
 
     // Step 5: decide whether to release (keep) the window or close it.
     let shouldRelease = (ctx.observedTabs?.size ?? 0) > 0;
-    if (queryApi) {
+    // A lazily-created window may not exist at all (in-place-only session):
+    // no window to query, nothing to release or close beyond agent tabs.
+    if (queryApi && ctx.agentWindowId !== undefined) {
       try {
         const liveWindowTabs = await queryApi.query({ windowId: ctx.agentWindowId });
         // Only genuine *user* tabs count toward keeping the window open.

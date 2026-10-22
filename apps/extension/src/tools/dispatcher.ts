@@ -1,5 +1,6 @@
 import type { DebugManager, DebugTicket } from "@/debug/manager";
 import type { DebugParams } from "@/debug/types";
+import { cursorNotifier } from "@/lib/cursor-notify";
 import type { InteractionPreferenceStore } from "@/lib/interaction-preferences";
 import { OVERLAY_AUTOMATION_BYPASS } from "@/lib/overlay-bridge";
 import { ScreenshotExports } from "@/long-screenshot/exports";
@@ -19,6 +20,7 @@ import type {
   GetHtmlParams,
   HoverParams,
   HoverResult,
+  MouseMoveParams,
   NavigateBackParams,
   NavigateForwardParams,
   NavigateParams,
@@ -69,6 +71,7 @@ import {
   handlePress,
   handleSelect,
 } from "./interaction";
+import { handleMouseMove } from "./mouse-move";
 import {
   handleNavigate,
   handleNavigateBack,
@@ -510,7 +513,10 @@ export class ToolDispatcher {
           cdp: this.cdp,
         });
         if (!isRpcError(result)) {
-          this.onAgentTabClaimed?.(result.tab_id, result.agent_window_id);
+          // Window-less (in-place) borrows carry no agent window to claim.
+          if (result.agent_window_id !== undefined) {
+            this.onAgentTabClaimed?.(result.tab_id, result.agent_window_id);
+          }
         }
         return result;
       }
@@ -697,6 +703,7 @@ export class ToolDispatcher {
                     signal,
                     bypassOverlay,
                     onInputSent,
+                    cursor: cursorNotifier,
                   }
                 : undefined,
             ),
@@ -715,11 +722,31 @@ export class ToolDispatcher {
                 bypassOverlay: (tabId, enabled) =>
                   this.setHoverBypass((req.params as HoverParams).session_id, tabId, enabled),
                 keepOverlayBypassAfterHover: true,
+                cursor: cursorNotifier,
               }
             : undefined,
         );
         return this.rememberHover((req.params as HoverParams).session_id, result);
       }
+      case "tool.mouse_move":
+        return this.withHoverReleaseForRequest(
+          req.params as MouseMoveParams,
+          () =>
+            handleMouseMove(
+              this.sessions,
+              req.params as MouseMoveParams,
+              this.cdp
+                ? {
+                    cdp: this.cdp,
+                    tabsApi: chromeTabsApi,
+                    signal,
+                    bypassOverlay,
+                    cursor: cursorNotifier,
+                  }
+                : undefined,
+            ),
+          signal,
+        );
       case "tool.wheel":
         return this.withHoverReassert(
           req.params as WheelParams,
@@ -728,7 +755,13 @@ export class ToolDispatcher {
               this.sessions,
               req.params as WheelParams,
               this.cdp
-                ? { cdp: this.cdp, tabsApi: chromeTabsApi, signal, bypassOverlay }
+                ? {
+                    cdp: this.cdp,
+                    tabsApi: chromeTabsApi,
+                    signal,
+                    bypassOverlay,
+                    cursor: cursorNotifier,
+                  }
                 : undefined,
             ),
           { releaseAfter: true },
@@ -774,7 +807,9 @@ export class ToolDispatcher {
             handleFill(
               this.sessions,
               req.params as FillParams,
-              this.cdp ? { cdp: this.cdp, tabsApi: chromeTabsApi, signal } : undefined,
+              this.cdp
+                ? { cdp: this.cdp, tabsApi: chromeTabsApi, signal, cursor: cursorNotifier }
+                : undefined,
             ),
           signal,
         );
@@ -785,7 +820,15 @@ export class ToolDispatcher {
             handlePress(
               this.sessions,
               req.params as PressParams,
-              this.cdp ? { cdp: this.cdp, tabsApi: chromeTabsApi, signal, onInputSent } : undefined,
+              this.cdp
+                ? {
+                    cdp: this.cdp,
+                    tabsApi: chromeTabsApi,
+                    signal,
+                    onInputSent,
+                    cursor: cursorNotifier,
+                  }
+                : undefined,
             ),
           signal,
         );
@@ -1060,6 +1103,7 @@ function sessionIdForBrowserControlMethod(req: RequestFrame): string | null {
     case "tool.reload":
     case "tool.click":
     case "tool.hover":
+    case "tool.mouse_move":
     case "tool.wheel":
     case "tool.scroll_to":
     case "tool.focus":

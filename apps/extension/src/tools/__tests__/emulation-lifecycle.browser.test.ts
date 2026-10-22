@@ -79,7 +79,7 @@ describe.skipIf(!process.env.BSK_CLICK_CHROME)("emulation lifecycle", () => {
     try {
       await browser(async (_send, cdp) => {
         const sessions = manager();
-        const first = await sessions.start("emulate-first");
+        const first = await sessions.startWithWindow("emulate-first");
         const read = async () =>
           (
             await cdp.send<{ result: { value: { ua: string; touch: number } } }>(
@@ -116,7 +116,7 @@ describe.skipIf(!process.env.BSK_CLICK_CHROME)("emulation lifecycle", () => {
         await sessions.stop(first.sessionId);
         const afterReturn = await read();
         expect(afterReturn).toEqual(original);
-        const second = await sessions.start("emulate-second");
+        const second = await sessions.startWithWindow("emulate-second");
         const secondReply = await handleEmulate(
           sessions,
           { session_id: second.sessionId, tab_id: 7, overrides: { width: 1200, height: 800 } },

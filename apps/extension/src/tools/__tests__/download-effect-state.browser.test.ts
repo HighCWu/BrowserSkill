@@ -78,7 +78,7 @@ describe.skipIf(!process.env.BSK_CLICK_CHROME)("download effect metadata", () =>
   it("a cancelled export whose click reached the page reports an unknown effect", async () => {
     await browser(async (_send, cdp) => {
       const sessions = manager();
-      const ctx = await sessions.start("download-effect");
+      const ctx = await sessions.startWithWindow("download-effect");
       await cdp.send(7, "Runtime.evaluate", {
         expression: `
         document.body.innerHTML = '<button id="export" style="width:200px;height:100px">Export</button>';

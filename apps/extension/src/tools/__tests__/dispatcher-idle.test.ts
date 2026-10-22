@@ -41,7 +41,7 @@ function setup() {
 describe("idle connection changes", () => {
   it("leaves an existing session alone", async () => {
     const s = setup();
-    await s.sessions.start("active");
+    await s.sessions.startWithWindow("active");
     const change = vi.fn(async () => {});
 
     expect(await s.dispatcher.runWhenIdle(change)).toBe(false);
@@ -50,27 +50,15 @@ describe("idle connection changes", () => {
     expect(s.remove).not.toHaveBeenCalled();
   });
 
-  it("reserves a start from receipt through asynchronous window creation", async () => {
+  it("registers a lazy session without a window; the idle gate stays shut for its lifetime", async () => {
     const s = setup();
-    const window = deferred<{ windowId: number; initialTabIds: number[] }>();
-    s.create.mockImplementationOnce(() => window.promise);
     const change = vi.fn(async () => {});
 
     s.start("starting");
-    // The request has not yet passed the dispatcher's asynchronous preparation.
+    await vi.waitFor(() => expect(s.sessions.has("starting")).toBe(true));
+    // Lazy: no window was created for the session.
     expect(s.create).not.toHaveBeenCalled();
     expect(await s.dispatcher.runWhenIdle(change)).toBe(false);
-    await vi.waitFor(() => expect(s.create).toHaveBeenCalledOnce());
-    expect(s.sessions.list()).toHaveLength(0);
-    expect(await s.dispatcher.runWhenIdle(change)).toBe(false);
-
-    window.resolve({ windowId: 10, initialTabIds: [100] });
-    await vi.waitFor(() =>
-      expect(s.send).toHaveBeenCalledWith(
-        expect.objectContaining({ id: "starting", result: expect.any(Object) }),
-      ),
-    );
-    expect(s.sessions.has("starting")).toBe(true);
     expect(change).not.toHaveBeenCalled();
     expect(s.remove).not.toHaveBeenCalled();
   });
@@ -111,7 +99,8 @@ describe("idle connection changes", () => {
     expect(await change).toBe(true);
     s.start("retry");
     await vi.waitFor(() => expect(s.sessions.has("retry")).toBe(true));
-    expect(s.create).toHaveBeenCalledOnce();
+    // Lazy: the fresh start still opens no window.
+    expect(s.create).not.toHaveBeenCalled();
     expect(s.remove).not.toHaveBeenCalled();
   });
 
@@ -125,46 +114,34 @@ describe("idle connection changes", () => {
 
     s.start("retry");
     await vi.waitFor(() => expect(s.sessions.has("retry")).toBe(true));
-    expect(s.create).toHaveBeenCalledOnce();
+    expect(s.create).not.toHaveBeenCalled();
   });
 
   it("allows a connection change after a failed session start", async () => {
     const s = setup();
-    s.create.mockRejectedValueOnce(new Error("window creation failed"));
-    s.start("failed");
+    // A rejected start registers nothing, so the gate must not wedge shut.
+    s.receive({
+      id: "failed",
+      method: "tool.session_start",
+      params: { session_id: "" },
+    });
     await vi.waitFor(() =>
       expect(s.send).toHaveBeenCalledWith(
         expect.objectContaining({ id: "failed", error: expect.any(Object) }),
       ),
     );
+    expect(s.sessions.list()).toHaveLength(0);
     const change = vi.fn(async () => {});
     expect(await s.dispatcher.runWhenIdle(change)).toBe(true);
     expect(change).toHaveBeenCalledOnce();
   });
 
-  it("keeps a cancelled start reserved until its window rollback finishes", async () => {
+  it("allows a connection change once the session is stopped", async () => {
     const s = setup();
-    const window = deferred<{ windowId: number; initialTabIds: number[] }>();
-    const removed = deferred<void>();
-    s.create.mockImplementationOnce(() => window.promise);
-    s.remove.mockImplementationOnce(() => removed.promise);
-    s.start("cancelled");
-    await vi.waitFor(() => expect(s.create).toHaveBeenCalledOnce());
-    s.receive({ id: "cancel", method: "cancel", params: { rpc_id: "cancelled" } });
+    await s.sessions.startWithWindow("active");
+    expect(await s.dispatcher.runWhenIdle(vi.fn(async () => {}))).toBe(false);
+    await s.sessions.stop("active");
     const change = vi.fn(async () => {});
-    expect(await s.dispatcher.runWhenIdle(change)).toBe(false);
-
-    window.resolve({ windowId: 10, initialTabIds: [100] });
-    await vi.waitFor(() => expect(s.remove).toHaveBeenCalledWith(10));
-    expect(await s.dispatcher.runWhenIdle(change)).toBe(false);
-    removed.resolve();
-    await vi.waitFor(() =>
-      expect(s.send).toHaveBeenCalledWith({
-        id: "cancelled",
-        error: { code: "cancelled", message: "session_start aborted" },
-      }),
-    );
-    expect(s.remove).toHaveBeenCalledWith(10);
     expect(await s.dispatcher.runWhenIdle(change)).toBe(true);
     expect(change).toHaveBeenCalledOnce();
   });

@@ -53,7 +53,7 @@ describe("attachSessionEventHandler", () => {
         ensureActiveTab: vi.fn(async () => 1),
       },
     });
-    await manager.start("aa11");
+    await manager.startWithWindow("aa11");
     const transport = fakeTransport();
     attachSessionEventHandler({ manager, transport, windowEvents: events.api });
     const result = await handleSessionStop(
@@ -81,7 +81,7 @@ describe("attachSessionEventHandler", () => {
         ensureActiveTab: vi.fn(async () => 1),
       },
     });
-    await manager.start("aa11");
+    await manager.startWithWindow("aa11");
     const transport = fakeTransport();
     attachSessionEventHandler({ manager, transport, windowEvents: events.api });
     await expect(handleSessionStop(manager, { session_id: "aa11" })).rejects.toThrow(
@@ -105,7 +105,7 @@ describe("attachSessionEventHandler", () => {
         ensureActiveTab: vi.fn(async () => 1),
       },
     });
-    await manager.start("aa11");
+    await manager.startWithWindow("aa11");
     const transport = fakeTransport();
     const events = fakeWindowEvents();
     const cdp = { detachSession: vi.fn(async () => {}) };
@@ -139,7 +139,7 @@ describe("attachSessionEventHandler", () => {
         ensureActiveTab: vi.fn(async () => 1),
       },
     });
-    const ctx = await manager.start("aa11");
+    const ctx = await manager.startWithWindow("aa11");
     ctx.borrowedTabs.set(7, { tabId: 7, originalWindowId: 200, originalIndex: 0 });
     const transport = fakeTransport();
     const events = fakeWindowEvents();

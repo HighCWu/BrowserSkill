@@ -4,7 +4,7 @@
 import type { SessionManager } from "@/session-manager/manager";
 import type { RpcError } from "@/transport/types";
 import { validateWindowSize } from "./session";
-import { isRpcError, lookupSession } from "./shared";
+import { ensureAgentWindowOrError, isRpcError, lookupSession } from "./shared";
 
 /**
  * Mirror of bsk-protocol `WindowResizeParams` /
@@ -65,9 +65,14 @@ export async function handleWindowResize(
     };
   }
 
+  // Resizing is an explicit Agent Window request: materialize the lazy
+  // window (creating it at the requested size) instead of failing.
+  const windowIdOrErr = await ensureAgentWindowOrError(manager, ctx, "window_resize", signal);
+  if (isRpcError(windowIdOrErr)) return windowIdOrErr;
+
   try {
     if (signal?.aborted) return { code: "cancelled", message: "window_resize aborted" };
-    await api.update(ctx.agentWindowId, {
+    await api.update(windowIdOrErr, {
       width: sizeOrErr.width,
       height: sizeOrErr.height,
     });
@@ -78,7 +83,7 @@ export async function handleWindowResize(
     };
   }
   return {
-    window_id: ctx.agentWindowId,
+    window_id: windowIdOrErr,
     width: sizeOrErr.width,
     height: sizeOrErr.height,
   };

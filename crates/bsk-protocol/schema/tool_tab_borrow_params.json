@@ -24,6 +24,13 @@
       "format": "uint32",
       "minimum": 0.0
     },
+    "in_place": {
+      "description": "Attach the tab where it lives: no move into the Agent Window, no confirmation prompt (the CLI invocation is the authorization), and `tab_return` only detaches. The tab is activated in its own window.",
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
     "session_id": {
       "type": "string"
     },

@@ -671,15 +671,34 @@ pub fn verify_sha256(bytes: &[u8], expected_hex: &str) -> Result<()> {
 }
 
 fn manifest_url() -> String {
-    std::env::var("BSK_UPDATE_MANIFEST_URL").unwrap_or_else(|_| DEFAULT_MANIFEST_URL.to_string())
+    std::env::var(MANIFEST_URL_ENV).unwrap_or_else(|_| DEFAULT_MANIFEST_URL.to_string())
 }
 
-/// Whether daemon-side auto-upgrade is enabled. On by default; only
-/// [`AUTO_UPDATE_ENV`]`=off` disables it. This is the single place the
-/// switch is interpreted — the daemon periodic task and the CLI hint
-/// both go through it so they always agree.
+/// Environment variable that points auto-update (and manual `bsk update`)
+/// at an operator-configured update feed instead of
+/// [`DEFAULT_MANIFEST_URL`].
+pub(crate) const MANIFEST_URL_ENV: &str = "BSK_UPDATE_MANIFEST_URL";
+
+/// Whether a custom update manifest is configured. Auto-upgrade only ever
+/// runs against an operator-configured feed ([`MANIFEST_URL_ENV`]); with
+/// no custom source the upstream project feed stays check/hint-only, so a
+/// fork install is never silently replaced by an upstream build.
+pub(crate) fn custom_manifest_configured() -> bool {
+    std::env::var(MANIFEST_URL_ENV)
+        .ok()
+        .is_some_and(|v| !v.trim().is_empty())
+}
+
+/// Whether daemon-side auto-upgrade is enabled. Requires *both* a custom
+/// update source ([`MANIFEST_URL_ENV`] set to a non-empty URL — the gate
+/// that keeps a fork install from being auto-replaced by an upstream
+/// build) *and* [`AUTO_UPDATE_ENV`] not `=off`. This is the single place
+/// the switch is interpreted — the daemon periodic task and the CLI hint
+/// both go through it so they always agree. Manual `bsk update` does not
+/// go through this gate.
 pub(crate) fn auto_update_enabled() -> bool {
-    auto_update_enabled_from(std::env::var(AUTO_UPDATE_ENV).ok().as_deref())
+    custom_manifest_configured()
+        && auto_update_enabled_from(std::env::var(AUTO_UPDATE_ENV).ok().as_deref())
 }
 
 fn auto_update_enabled_from(value: Option<&str>) -> bool {

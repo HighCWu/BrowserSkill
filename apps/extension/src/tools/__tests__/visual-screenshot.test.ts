@@ -496,7 +496,7 @@ describe("visual screenshot", () => {
         ensureActiveTab: async () => 4,
       },
     });
-    const ctx = await manager.start("test");
+    const ctx = await manager.startWithWindow("test");
     ctx.refStore.replace([["e1", { kind: "visual-region", candidate: f.candidate }]]);
     const tab = { id: 4, windowId: 100, active: true } as chrome.tabs.Tab;
     const tabsApi = { get: async () => tab, query: async () => [tab] };
@@ -520,7 +520,7 @@ async function pointFixture(child = false, oopif = false) {
       ensureActiveTab: async () => 4,
     },
   });
-  const ctx = await manager.start("point");
+  const ctx = await manager.startWithWindow("point");
   ctx.refStore.replace([["e1", { kind: "visual-region", candidate: f.candidate }]]);
   const tab = { id: 4, windowId: 100, active: true } as chrome.tabs.Tab;
   const tabsApi = { get: async () => tab, query: async () => [tab] };

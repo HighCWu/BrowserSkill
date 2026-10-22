@@ -138,7 +138,7 @@ describe.skipIf(!process.env.BSK_BACKGROUND_CHROME)(
                   ensureActiveTab: async () => 1,
                 },
               });
-              const ctx = await manager.start("agent");
+              const ctx = await manager.startWithWindow("agent");
               ctx.borrowedTabs.set(7, { tabId: 7, originalWindowId: 200, originalIndex: 1 });
               const tabsApi = {
                 get: async () => ({ id: 7, windowId: 100, active: false, url }) as chrome.tabs.Tab,

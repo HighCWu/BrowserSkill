@@ -44,7 +44,9 @@ describe("failed startup through the production stop handler", () => {
       b.tabs.query.mockRejectedValueOnce(new Error("initialization failed"));
     }
     b.windows.remove.mockRejectedValueOnce(new Error("rollback close failed"));
-    await expect(b.manager.start("broken", { signal: controller.signal })).rejects.toMatchObject({
+    await expect(
+      b.manager.startWithWindow("broken", { signal: controller.signal }),
+    ).rejects.toMatchObject({
       name: "SessionStartCleanupError",
     });
     const result = await handleSessionStop(
@@ -66,7 +68,7 @@ describe("failed startup through the production stop handler", () => {
     const b = browser();
     b.tabs.query.mockRejectedValueOnce(new Error("initialization failed"));
     b.windows.remove.mockRejectedValueOnce(new Error("rollback close failed"));
-    await expect(b.manager.start("broken")).rejects.toThrow(/cleanup/);
+    await expect(b.manager.startWithWindow("broken")).rejects.toThrow(/cleanup/);
     b.liveTabs.set(99, { id: 99, windowId: 100 } as chrome.tabs.Tab);
     const result = await handleSessionStop(
       b.manager,
@@ -86,7 +88,7 @@ describe("failed startup through the production stop handler", () => {
     const b = browser();
     b.tabs.query.mockRejectedValueOnce(new Error("initialization failed"));
     b.windows.remove.mockRejectedValueOnce(new Error("rollback close failed"));
-    await expect(b.manager.start("broken")).rejects.toThrow(/cleanup/);
+    await expect(b.manager.startWithWindow("broken")).rejects.toThrow(/cleanup/);
     b.liveTabs.set(99, { id: 99, windowId: 100 } as chrome.tabs.Tab);
     b.tabs.remove.mockRejectedValueOnce(new Error("tab close failed"));
     const deps = { tabManagement: { tabs: b.tabs }, tabsQuery: b.tabs };

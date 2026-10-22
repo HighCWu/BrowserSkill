@@ -6,6 +6,13 @@
     "session_id"
   ],
   "properties": {
+    "glide": {
+      "description": "Glide the pointer to the target along a humanised trajectory instead of moving in a single step.",
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
     "modifiers": {
       "type": [
         "array",
@@ -16,13 +23,14 @@
       }
     },
     "ref": {
-      "description": "Optional `@e<N>` ref allocated by the last observation. Mutually exclusive with `selector`.",
+      "description": "Optional `@e<N>` ref allocated by the last observation. Mutually exclusive with `selector` and with `x`/`y`.",
       "type": [
         "string",
         "null"
       ]
     },
     "selector": {
+      "description": "Mutually exclusive with `ref` and with `x`/`y`.",
       "type": [
         "string",
         "null"
@@ -55,6 +63,22 @@
       ],
       "format": "uint32",
       "minimum": 1.0
+    },
+    "x": {
+      "description": "Viewport-relative X coordinate (CSS pixels). When both `x` and `y` are supplied the mouse moves straight to this point without resolving an element; both must be given together and neither may be combined with `ref`/`selector`.",
+      "type": [
+        "number",
+        "null"
+      ],
+      "format": "double"
+    },
+    "y": {
+      "description": "Viewport-relative Y coordinate (CSS pixels). See `x`.",
+      "type": [
+        "number",
+        "null"
+      ],
+      "format": "double"
     }
   },
   "definitions": {

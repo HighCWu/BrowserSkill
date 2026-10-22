@@ -245,8 +245,8 @@ describe("download deadlines", () => {
         ensureActiveTab: async () => 7,
       },
     });
-    const first = await sessions.start("first");
-    const second = await sessions.start("second");
+    const first = await sessions.startWithWindow("first");
+    const second = await sessions.startWithWindow("second");
     first.refStore.set("e1", 123, { tabId: 7 });
     const input = deferred<object>();
     const inputs: string[] = [];

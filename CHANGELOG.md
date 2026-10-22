@@ -53,6 +53,135 @@ Starting from 0.2.0, CLI / Extension / DSH Plugin share the same version number.
   DSH `bsk_page` tool, with explicit deadlines and recovery guidance.
 - CLI browser-selector errors list connected browsers when no instance matches.
 
+### Changed
+
+- Lazy Agent Window: `session_start` no longer opens a dedicated window with
+  a blank home tab. The window materializes on first need — `tab_create`, a
+  legacy (moving) `tab_borrow`, `window_resize`, `record_start` — so in-place
+  borrow workflows run entirely without one. `agent_window_id` is optional in
+  the session-start and tab-borrow results; commands without a pinned tab in
+  a window-less session get a guided `not_found` instead of acting on a
+  random active tab.
+
+### Added
+
+- In-place borrow mode: `bsk tab borrow <TAB_ID> --in-place` attaches a user
+  tab where it lives — no move into the Agent Window, no confirmation prompt
+  (the CLI invocation is the authorization, matching the Codex/Claude-in-
+  Chrome model). The tab is activated in its own window, Agent Window scope
+  checks exempt it, the visual-cursor overlay follows it, and `tab return` /
+  session stop only detach. Legacy borrows are unchanged.
+- Default-target pin: sessions track `defaultTabId`, set by `tab_borrow`
+  (both modes) and `tab_select`, preferred when resolving commands without
+  an explicit `tab_id`, self-healed when the tab is gone or no longer
+  agent-controlled, and cleared by a matching `tab_return`. In-place borrows
+  rely on this: their tab never enters the Agent Window, so the previous
+  window-based fallback could never target it.
+- Coordinate clicks: `click` accepts `--x`/`--y` (viewport CSS pixels,
+  both together) like `hover` — the press dispatches at that point without
+  resolving an element. A glided approach lands exactly on the requested
+  point (landing scatter needs an element box). Enables progress-bar and
+  player-surface interactions that have no clean element target.
+- Fill synthetic-event hardening: after `Input.insertText`, fill probes
+  whether the page already reacted to the trusted `input` event that
+  insertText delivers, and only pages that stayed silent receive the
+  synthetic `input`/`change` fallback. `isTrusted: false` events are an
+  automation fingerprint real user streams never contain.
+
+### Fixed
+
+- Overlay state resolves control for in-place borrows pushed by tab id only:
+  `pushAllAgentOverlayStates` sends these tabs no window id, and the old
+  both-args guard in `overlayStateForTab` turned that into a `hidden` push —
+  every global re-push (handshake verdict flip, session start/stop) made a
+  still-controlled in-place tab unmount its cursor indicator until the next
+  cursor message re-synced it. The in-place lookup now needs only the tab id;
+  the window-scoped claim still wins when a window id is present.
+- Click `--glide` now passes the visual-cursor notifier into the shared glide
+  helper (hover already did): the on-page indicator glides through every
+  trajectory point of a click approach instead of teleporting to the landing
+  point on press.
+- Ring-fade test budget follows `RING_FADE_MS`.
+
+### Changed
+
+- Press feedback is easier to see at a glance: the landing ring grows to 42px
+  with a soft glow and a 340 ms fade, and the pressed arrow squashes (the
+  transform-origin existed without a transform).
+
+### Added
+
+- On-page visual pointer indicator so a human can follow the agent's input in
+  the borrowed tab in real time. A dedicated content script renders a neutral
+  pointer sprite inside a **closed shadow root** on a single `aria-hidden`,
+  `pointer-events: none` host element (per-mount random class name): it glides
+  to every dispatched trajectory point (~100 ms transitions), plays a local
+  180 ms glide for single-hop element hovers, ripples and switches to an
+  accented sprite on click press/release, shows a direction chevron for wheel
+  gestures, and flashes on typing. Input timing is unchanged except one short,
+  capped (~150 ms) settle wait at a trajectory's landing point and before a
+  teleport-click press, and only while the indicator is enabled. It hides
+  itself through the existing capture-suppress bridge during screenshots,
+  skips rendering in hidden tabs, honours `prefers-reduced-motion`, and tears
+  down every node (including the stylesheet) on session end, tab return, reset
+  and page unload. The daemon ships it enabled by default and advertises the
+  verdict in its handshake response (`cursor_overlay`); setting
+  `BSK_CURSOR_OVERLAY=off` keeps pages free of the indicator nodes entirely.
+  Mounting is race-free by design: the handshake verdict is mirrored into
+  `chrome.storage.session` (surviving service-worker restarts), the
+  `overlay.ready` request answers synchronously with the caller's control
+  state, and any input received on an unmounted tab triggers a throttled
+  state re-sync.
+- `mouse-move` (and `hover`/`click --glide`) now plan pointer motion with a
+  v2 behaviour state machine by default: a Fitts-timed main pulse covering
+  85–95% of the distance with a curvature-weighted minimum-jerk profile and
+  a mid-reach micro-correction, plus probabilistic hesitation pauses,
+  en-route inspection stops over interactive elements discovered through
+  the existing page-world evaluate channel (up to three probes per move),
+  0–3 corrective arrival pulses, an occasional rethink (u-turn), and — for
+  glided clicks only — a pre-click brake scaled to cover the final-window
+  deceleration channel with a centre-avoiding landing scatter (the press
+  follows the scattered landing and is what the result reports; small
+  controls keep their exact action point). Mid-flight insertions cap at
+  three per move. Inter-point delays cluster around the pointer sampling
+  interval with jitter, coordinates stay sub-pixel, and vertical moves run
+  slightly asymmetrically. Passing explicit `--steps`, `--duration-ms` or
+  `--curve linear` keeps the previous deterministic single-segment planner;
+  `--overshoot off` also disables the v2 overshoot branch. A built-in exam
+  (`trajectory-metrics`) holds the generated traces inside the published
+  human envelopes: power-law speed/curvature exponent, pause ratio,
+  submovement count, pre-click deceleration ratio, non-constant
+  acceleration and tremor-free locked windows.
+
+
+- CDP console capture is now opt-in via the daemon environment variable
+  `BSK_CONSOLE_CAPTURE`. Unset (the default) keeps it off: attaching to a tab
+  never sends `Runtime.enable` / `Log.enable`, which anti-bot stacks treat as a
+  strong automation signal; `bsk console` then reports no buffered entries
+  instead of failing. Set `BSK_CONSOLE_CAPTURE=on` and reconnect the browser to
+  restore buffered console capture. The daemon advertises the choice to the
+  extension in its handshake response (`console_capture`).
+- `hover` accepts explicit viewport coordinates: `bsk hover --x <X> --y <Y>` (and
+  the `tool.hover` wire fields `x`/`y`) move the mouse to an absolute point in CSS
+  pixels without resolving an element, for pointer-trajectory scripting. The
+  coordinates must be supplied together, exclude `ref`/`selector`, and are
+  validated against the layout viewport. Optional fields only, so existing
+  callers are unaffected.
+- `mouse-move` glides the pointer along a humanised trajectory:
+  `bsk mouse-move --x <X> --y <Y>` (wire method `tool.mouse_move`) dispatches a
+  planned sequence of real `mouseMoved` events with genuine inter-point sleeps —
+  a cubic Bézier path with random perpendicular control anchors, an ease-in-out
+  velocity envelope, ±0.5 px per-point jitter, and an occasional
+  overshoot-and-correct tail (~12% chance). Duration adapts to travel distance
+  (350–950 ms); point count, curve, overshoot and jitter are exposed as
+  optional knobs. The move starts from the tab's last dispatched pointer
+  position (now tracked across `mouse-move`, `hover` and `click`) or the
+  viewport centre, and can be overridden with `--from-x/--from-y`.
+- `hover` and `click` accept `--glide` (wire field `glide`) to approach the
+  target along the same trajectory instead of teleporting. Without the flag
+  their behaviour is unchanged; `click --glide` is mutually exclusive with
+  `--capture` (enforced by the CLI parser and the extension).
+
 ### Fixed
 
 - DSH Plugin: roll back incomplete tool registration, surface activation failures,

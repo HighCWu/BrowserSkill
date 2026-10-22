@@ -32,6 +32,13 @@
       "format": "uint32",
       "minimum": 1.0
     },
+    "glide": {
+      "description": "Glide the pointer to the click point along a humanised trajectory instead of teleporting. Mutually exclusive with `capture_id`.",
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
     "image_x": {
       "type": [
         "number",
@@ -86,6 +93,22 @@
       ],
       "format": "uint32",
       "minimum": 1.0
+    },
+    "x": {
+      "description": "Viewport-relative X coordinate (CSS pixels). When both `x` and `y` are supplied the click is dispatched at this point without resolving an element; both must be given together and neither may be combined with `ref`/`selector`/`capture_id`.",
+      "type": [
+        "number",
+        "null"
+      ],
+      "format": "double"
+    },
+    "y": {
+      "description": "Viewport-relative Y coordinate (CSS pixels). See `x`.",
+      "type": [
+        "number",
+        "null"
+      ],
+      "format": "double"
     }
   },
   "definitions": {

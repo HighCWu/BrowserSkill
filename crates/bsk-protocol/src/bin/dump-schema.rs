@@ -83,6 +83,8 @@ fn main() {
     dump!(ClickResult, "tool_click_result");
     dump!(HoverParams, "tool_hover_params");
     dump!(HoverResult, "tool_hover_result");
+    dump!(MouseMoveParams, "tool_mouse_move_params");
+    dump!(MouseMoveResult, "tool_mouse_move_result");
     dump!(WheelParams, "tool_wheel_params");
     dump!(WheelResult, "tool_wheel_result");
     dump!(ScrollToParams, "tool_scroll_to_params");

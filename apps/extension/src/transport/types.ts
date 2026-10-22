@@ -183,6 +183,19 @@ export interface HandshakeResult {
   min_compatible_peer?: string;
   /** Protocol floor advertised by the daemon; absent on legacy daemons. */
   min_compatible_protocol?: string;
+  /**
+   * Daemon opt-in for CDP console capture. Absent or false keeps capture
+   * off: attaching to a tab never sends `Runtime.enable` / `Log.enable`,
+   * and `tool.console` returns no buffered entries.
+   */
+  console_capture?: boolean;
+  /**
+   * Daemon opt-in for the on-page visual pointer indicator. Present (true)
+   * when the daemon runs with the overlay enabled (the default); absent
+   * when the operator set `BSK_CURSOR_OVERLAY=off`, in which case the
+   * extension keeps pages free of the indicator nodes.
+   */
+  cursor_overlay?: boolean;
 }
 
 export type ConnectionState = "disconnected" | "connecting" | "connected" | "version_skew";
@@ -332,13 +345,18 @@ export interface TabBorrowParams {
   session_id: string;
   tab_id: number;
   confirm?: boolean;
+  /** Attach the tab where it lives: no move, no confirmation prompt. */
+  in_place?: boolean;
 }
 
 export interface TabBorrowResult {
   tab_id: number;
   original_window_id: number;
   original_index: number;
-  agent_window_id: number;
+  /** Absent for in-place borrows: the session may never open an Agent Window. */
+  agent_window_id?: number;
+  /** True when the tab was attached in place instead of moved. */
+  in_place?: boolean;
 }
 
 export interface TabReturnParams {
@@ -515,6 +533,7 @@ export type ReloadResult = NavigateHistoryResult;
 
 export type MouseButton = "left" | "middle" | "right";
 export type KeyModifier = "alt" | "ctrl" | "meta" | "shift";
+export type MouseCurve = "bezier" | "linear";
 
 export interface ClickParams {
   capture_id?: string;
@@ -523,10 +542,16 @@ export interface ClickParams {
   session_id: string;
   ref?: string;
   selector?: string;
+  /** Viewport-relative X (CSS pixels); both x and y must be given together, exclusive with ref/selector/capture_id. */
+  x?: number;
+  /** Viewport-relative Y (CSS pixels). See x. */
+  y?: number;
   tab_id?: number;
   button?: MouseButton;
   click_count?: number;
   modifiers?: KeyModifier[];
+  /** Glide to the click point along a humanised trajectory; exclusive with capture_id. */
+  glide?: boolean;
   timeout_ms?: number;
 }
 
@@ -543,10 +568,43 @@ export interface HoverParams {
   session_id: string;
   ref?: string;
   selector?: string;
+  /** Viewport-relative coordinates (CSS pixels); both together skip element resolution. */
+  x?: number;
+  y?: number;
   tab_id?: number;
   modifiers?: KeyModifier[];
   settle_ms?: number;
+  /** Glide along a humanised trajectory instead of a single move. */
+  glide?: boolean;
   timeout_ms?: number;
+}
+
+export interface MouseMoveParams {
+  session_id: string;
+  to_x: number;
+  to_y: number;
+  from_x?: number;
+  from_y?: number;
+  duration_ms?: number;
+  steps?: number;
+  curve?: MouseCurve;
+  overshoot?: boolean;
+  jitter?: boolean;
+  tab_id?: number;
+  timeout_ms?: number;
+}
+
+export interface MouseMoveResult {
+  tab_id: number;
+  from_x: number;
+  from_y: number;
+  x: number;
+  y: number;
+  steps: number;
+  duration_ms: number;
+  overshoot: boolean;
+  curve: MouseCurve;
+  dialogs?: JavaScriptDialogInfo[];
 }
 
 export interface HoverResult {

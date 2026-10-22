@@ -37,8 +37,8 @@ async function fixture(remote = true) {
       ensureActiveTab: async (id) => id,
     },
   });
-  const task = await manager.start("one"),
-    other = await manager.start("two");
+  const task = await manager.startWithWindow("one"),
+    other = await manager.startWithWindow("two");
   const tabs = new Map<number, chrome.tabs.Tab>([
     [10, { id: 10, windowId: 10, active: true } as chrome.tabs.Tab],
     [11, { id: 11, windowId: 11, active: true } as chrome.tabs.Tab],

@@ -58,7 +58,7 @@ async function withFocusBrowser(
           ensureActiveTab: async () => 4,
         },
       });
-      const ctx = await manager.start("aa11");
+      const ctx = await manager.startWithWindow("aa11");
       const calls: string[] = [];
       const afterCommand = { current: (_method: string) => {} };
       const cdp: CdpRunner = {

@@ -32,7 +32,7 @@ async function fixture() {
       ensureActiveTab: vi.fn(async () => 4),
     },
   });
-  await manager.start("test");
+  await manager.startWithWindow("test");
   type Listener = Parameters<BrowserNavigationApi["onCommitted"]["addListener"]>[0];
   const events = {
     onBeforeNavigate: event<Listener>(),

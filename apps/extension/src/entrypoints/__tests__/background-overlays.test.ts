@@ -1,6 +1,7 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { ChromiumCdp } from "@/browser-driver/chromium-cdp";
 import { OverlayController, shouldShowAgentControlOverlay } from "@/content/overlay-controller";
+import { ConnectionController } from "@/lib/connection-controller";
 import { watchDaemonConnection } from "@/lib/daemon-connection-preference";
 import { OVERLAY_AGENT_STATE, type OverlayAgentStateMessage } from "@/lib/overlay-bridge";
 import { attachSessionsLiveFlag } from "@/lib/sessions-live-flag";
@@ -77,6 +78,7 @@ async function fixture() {
   vi.stubGlobal("chrome", {
     tabs: {
       sendMessage,
+      query: async () => [],
       get: vi.fn(async () => ({ url: "https://example.test" })),
       onDetached,
       onActivated: event(),
@@ -98,7 +100,7 @@ async function fixture() {
   vi.mocked(VideoManager.prototype.stopTab).mockResolvedValue();
   (background as unknown as () => void)();
   const deps = vi.mocked(ToolDispatcher).mock.calls.at(-1)![0];
-  const task = await deps.sessions.start("one");
+  const task = await deps.sessions.startWithWindow("one");
   return { overlay, onDetached, sendMessage, deps, task };
 }
 
@@ -143,6 +145,28 @@ it("does not reset tabs without an observed claim", async () => {
   expect(f.sendMessage).not.toHaveBeenCalled();
   expect(f.deps.cdp?.releaseSessionTab).not.toHaveBeenCalled();
   expect(isAgentControlledTab(f.task, 10)).toBe(true);
+});
+
+it("global re-pushes resolve control for in-place borrows pushed by tab id only", async () => {
+  const f = await fixture();
+  f.task.borrowedTabs.set(30, {
+    tabId: 30,
+    originalWindowId: 77,
+    originalIndex: 0,
+    inPlace: true,
+  });
+  // Handshake verdict flip is the pushAllAgentOverlayStates trigger: in-place
+  // tabs are pushed without a window id and must not be told to hide.
+  const onHandshake = vi.mocked(ConnectionController.prototype.subscribe).mock.calls.at(0)![0];
+  onHandshake({ handshake: { cursor_overlay: true } } as never);
+  await Promise.resolve();
+  const pushed = f.sendMessage.mock.calls.find(([tabId]) => tabId === 30);
+  expect(pushed).toBeDefined();
+  expect(pushed![1]).toMatchObject({
+    type: OVERLAY_AGENT_STATE,
+    sessionId: "one",
+    mode: "control",
+  });
 });
 
 it("accepts an absent video listener but preserves real overlay replies and errors", async () => {

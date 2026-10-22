@@ -21,7 +21,7 @@ async function fixture(frame: "top" | "same-target" | "oopif" = "top") {
       ensureActiveTab: async () => 4,
     },
   });
-  const ctx = await manager.start("aa11");
+  const ctx = await manager.startWithWindow("aa11");
   ctx.refStore.set("e3", 1234, {
     tabId: 4,
     ...(frame !== "top" ? { frameId: "child" } : {}),

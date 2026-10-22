@@ -57,7 +57,7 @@ function makeDeps(
 describe("handleNetwork", () => {
   it("reads the Agent Window active tab with safe defaults", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const deps = makeDeps({
       result: {
         tab_id: 7,
@@ -79,7 +79,7 @@ describe("handleNetwork", () => {
 
   it("reads an explicit tab and forwards cursor options", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const deps = makeDeps({
       get: vi.fn(async () => ({ id: 9, windowId: 200, active: true }) as chrome.tabs.Tab),
     });
@@ -102,7 +102,7 @@ describe("handleNetwork", () => {
 
   it("surfaces network capture failures as cdp_failed", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100]) });
-    await sm.start("aa11");
+    await sm.startWithWindow("aa11");
     const deps = makeDeps({ captureError: new Error("Network.enable denied") });
 
     const res = await handleNetwork(sm, { session_id: "aa11" }, deps);
@@ -114,8 +114,8 @@ describe("handleNetwork", () => {
 
   it("hides other sessions' Agent Window tabs", async () => {
     const sm = new SessionManager({ agentWindow: fakeAgentWindow([100, 101]) });
-    await sm.start("aa11");
-    await sm.start("bb22");
+    await sm.startWithWindow("aa11");
+    await sm.startWithWindow("bb22");
     const deps = makeDeps({
       get: vi.fn(async () => ({ id: 9, windowId: 101, active: true }) as chrome.tabs.Tab),
     });

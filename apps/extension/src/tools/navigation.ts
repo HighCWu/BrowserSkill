@@ -91,13 +91,15 @@ interface ReadyStateProbeReply {
 /**
  * Read `document.readyState` on the tab's main execution context.
  * Returns `null` when CDP cannot evaluate (detached tab, etc.).
+ *
+ * `Runtime.evaluate` does not require the Runtime domain to be enabled,
+ * so this probe deliberately leaves it untouched.
  */
 export async function probeMainFrameReadyState(
   cdp: CdpRunner,
   tabId: number,
 ): Promise<string | null> {
   try {
-    await cdp.send(tabId, "Runtime.enable", {});
     const reply = await cdp.send<ReadyStateProbeReply>(tabId, "Runtime.evaluate", {
       expression: "document.readyState",
       returnByValue: true,

@@ -116,6 +116,11 @@ pub struct TabBorrowArgs {
     /// Maximum time to wait for user confirmation (default 60s).
     #[arg(long, value_parser = crate::cli::navigate::parse_timeout_ms)]
     pub timeout: Option<u32>,
+    /// Attach the tab where it lives: no move into the Agent Window, no
+    /// confirmation prompt (this invocation is the authorization); the tab
+    /// is activated in its own window and `tab return` only detaches.
+    #[arg(long = "in-place", action = clap::ArgAction::SetTrue)]
+    pub in_place: bool,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -213,6 +218,7 @@ fn run_borrow(sock: PathBuf, args: TabBorrowArgs, format: Format) -> Result<(), 
         tab_id: args.tab_id,
         confirmation_timeout_ms: args.timeout,
         confirm: None,
+        in_place: args.in_place.then_some(true),
     };
     let reply: TabBorrowResult = crate::cli::business_rpc::call(
         sock,
@@ -225,10 +231,17 @@ fn run_borrow(sock: PathBuf, args: TabBorrowArgs, format: Format) -> Result<(), 
             + std::time::Duration::from_secs(5),
     )?;
     print_payload(&reply, format, || {
-        println!(
-            "borrowed tab_id={} from window={} index={} → agent_window={}",
-            reply.tab_id, reply.original_window_id, reply.original_index, reply.agent_window_id
-        );
+        if reply.in_place == Some(true) {
+            println!(
+                "attached in place tab_id={} window={} index={} (no move)",
+                reply.tab_id, reply.original_window_id, reply.original_index
+            );
+        } else {
+            println!(
+                "borrowed tab_id={} from window={} index={} → agent_window={}",
+                reply.tab_id, reply.original_window_id, reply.original_index, reply.agent_window_id.map(|w| w.to_string()).unwrap_or_else(|| "-".into())
+            );
+        }
     })
 }
 
