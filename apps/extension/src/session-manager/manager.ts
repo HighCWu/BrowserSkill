@@ -293,15 +293,17 @@ export class SessionManager {
     }
     throwIfSessionStartAborted(opts.signal);
 
-    const { signal: _signal, size, focused, ...rest } = opts;
+    const { signal: _signal, size, focused, incognito, ...rest } = opts;
     void rest;
     const agentWindowOptions: AgentWindowCreateOptions = {
       ...(size ? { size } : {}),
       ...(focused !== undefined ? { focused } : {}),
+      ...(incognito !== undefined ? { incognito } : {}),
     };
     const ctx: SessionContext = {
       ...(this.remote() ? { remote: true } : {}),
       sessionId,
+      ...(incognito ? { incognito: true } : {}),
       ...(Object.keys(agentWindowOptions).length > 0 ? { agentWindowOptions } : {}),
       refStore: new RefStore(),
       borrowedTabs: new Map(),

@@ -239,9 +239,12 @@ describe("ToolDispatcher", () => {
     dispatcher.start();
     deliver(makeRequest("tool.session_start", { session_id: "private", incognito: true }));
     await flushMicrotasks();
-    expect(create).toHaveBeenCalledWith("about:blank", { incognito: true });
+    // Fork lazy-start: the incognito flag is recorded on the session and
+    // forwarded to window creation, but no Agent Window materializes until
+    // first need (upstream materializes one eagerly).
+    expect(create).not.toHaveBeenCalled();
     expect(sessions.get("private")?.incognito).toBe(true);
-    expect(sent[0]).toMatchObject({ result: { agent_window_id: 4242 } });
+    expect(sent[0]).toMatchObject({ result: {} });
     dispatcher.stop();
   });
 
